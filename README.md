@@ -93,6 +93,22 @@ binary path. A task in `.zed/tasks.json` can simply run the tool through pixi:
 `pixi run` activates the environment, so tools started by the task are the pixi
 ones.
 
+### Alternative: a direnv shell hook
+
+Zed runs the project's login shell in the worktree root and loads `.envrc` by
+default (`load_direnv: "direct"`). Putting the pixi shell hook there gives the
+built-in language servers, tasks and terminals the environment without a
+generated settings file:
+
+```sh
+# .envrc at the project root
+eval "$(pixi shell-hook)"
+```
+
+Then run `direnv allow`. Empty variables in `.envrc` are fine; Zed merges the
+per-server `binary.env` settings over the shell environment, so an explicit
+`lsp.<server>.binary.env` is only needed to override something.
+
 ## How the environment is found
 
 The extension always uses `<workspace root>/pixi.toml`. There is no separate
