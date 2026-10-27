@@ -3,6 +3,17 @@ name = "zed pixi extension"
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64"]
 
+# Regenerate .zed/settings.json and .zed/tasks.json from this environment.
+# Requires scripts/zed_pixi_sync.py (see docs/zed-config.md).
+[tasks.zed-sync]
+cmd = "python3 scripts/zed_pixi_sync.py"
+
+[tasks.zed-sync-check]
+cmd = "python3 scripts/zed_pixi_sync.py --check"
+
+[tasks.zed-sync-test]
+cmd = "python3 -m unittest discover -s scripts -p 'test_*.py'"
+
 [tasks.build]
 cmd = "cargo build --release --target wasm32-wasip2"
 
@@ -19,3 +30,4 @@ cmd = "cargo run --features native-check --bin pixi-env-check -- ."
 rust-analyzer = ">=2026.8.24,<2027"
 basedpyright = ">=1.40.2,<2"
 taplo = ">=0.10.0,<0.11"
+python = ">=3.11"
