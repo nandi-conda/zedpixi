@@ -204,9 +204,3 @@ should receive; a name that only exists on the host `PATH` makes it fail.
   fallback to the host `PATH`.
 - The `Scripts`-first lookup for Windows is implemented, but only the Linux
   path is covered by the tests.
-
-## See also
-
-- [Lean 4: `lean4-lsp` cannot find `lake`](zed-lean4-lsp.md) — why a language
-  server from another extension does not see `pixi run`'s environment, and the
-  `binary.path` and elan fixes.

@@ -12,7 +12,7 @@ against this repository's environment or Zed's captured shell PATH.
 
 Measured on this machine on 2026-10-27. Purpose: explain why Zed's Lean 4
 extension (id `lean4`, server id `lean4-lsp`, version 0.1.0 /
-`blackbird314/zed-lean4@22f5e1e`) reports
+`owlx56/zed-lean4@90d4b7c376`, the commit published as 0.1.0) reports
 
     Failed to find lake in PATH or ELAN_HOME/default path. Enable
     lsp.lean4-lsp.settings.elan_auto_install or configure
@@ -156,6 +156,55 @@ Rules:
 - Do not use `elan_auto_install` for pixi projects: it downloads a second,
   unmanaged toolchain into `$HOME/.elan` and bypasses the pixi env.
 
+## Other ways to make the extension find `lake`
+
+The generated entry above is the pixi-native fix. These alternatives cover
+setups the generator does not: an elan-managed toolchain, a prefix that moves,
+or a project that already loads its environment through direnv.
+
+### elan
+
+If the project has to follow `lean-toolchain` (Mathlib and most existing Lean
+projects), use elan instead of the pixi `lean4` package:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
+```
+
+The installer creates `~/.elan/bin/lake`. The extension finds it in step 3
+without any `lean4-lsp` settings, and Lake downloads the toolchain named by
+`lean-toolchain`. If elan lives elsewhere, set `ELAN_HOME` in the worktree
+shell environment (shell profile, `.envrc`, desktop session), not in
+`lsp.lean4-lsp.binary.env`: the extension reads `ELAN_HOME` from
+`worktree.shell_env()` before Zed merges `binary.env`.
+
+### Wrapper script through `pixi run`
+
+Use this when the prefix changes (the cache path includes a hash) or a pixi
+task must run first. Create an executable script outside the repository:
+
+```sh
+#!/bin/sh
+exec /usr/bin/pixi --no-progress run --manifest-path /path/to/project/pixi.toml lake "$@"
+```
+
+Use the absolute path printed by `command -v pixi`, set it as
+`lsp.lean4-lsp.binary.path`, and keep `"arguments": ["serve", "--"]`.
+`pixi run` writes nothing to stdout, so the LSP stream stays valid; each launch
+re-checks the environment, which is slower than a direct `binary.path`.
+
+### direnv and `pixi shell-hook`
+
+A `.envrc` with `eval "$(pixi shell-hook)"`, with Zed's direnv support enabled,
+puts `<prefix>/bin` on the worktree shell environment's `PATH`. Then
+`worktree.which("lake")` succeeds and no `lean4-lsp` settings are needed. This
+is the mechanism in
+[zed-config.md](zed-config.md#alternative-the-project-shell-environment), and
+it also helps other tools that only look on `PATH`.
+
+`elan_auto_install` remains a last resort: it installs a second, unmanaged
+toolchain into `~/.elan`, outside pixi.
+
 ## Current state of this repository (corrected scope)
 
 The answer to "does Zed use the pixi-pinned Lean?" is **no, not by itself**.
@@ -203,6 +252,8 @@ Scratch project `/tmp/leancheck` with `[dependencies] lean4 = "==4.33.0"`
   `initialize` returned `{"serverInfo": {"name": "Lean 4 Server", "version":
   "0.3.0"}}` with `hoverProvider` and the other capabilities, so the generated
   entry starts a working server.
+- The wrapper described above, started the same way with `serve --`, also
+  answered `initialize` and wrote nothing to stdout besides the LSP frames.
 - The host has no `lake`, `lean` or elan (`command -v` finds none, no
   `~/.elan`), so without the entry the extension can only fail.
 
