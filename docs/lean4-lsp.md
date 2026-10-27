@@ -11,6 +11,39 @@ extension (id `lean4`, server id `lean4-lsp`, version 0.1.0 /
 and what `scripts/zed_pixi_sync.py` has to write instead. The generator itself
 is owned elsewhere; this file records the findings only.
 
+## Minimal interim fix
+
+Get the Lake path from the project's own environment:
+
+    pixi run which lake
+
+Then put this in the project's `.zed/settings.json` (`<lake>` is the absolute
+path that command prints, for example `<prefix>/bin/lake`):
+
+```json
+{
+  "lsp": {
+    "lean4-lsp": {
+      "binary": {
+        "path": "<lake>",
+        "arguments": ["serve", "--"]
+      }
+    }
+  }
+}
+```
+
+Both keys matter: `path` must be `lake`, not `lean`, and `arguments` must be
+`["serve", "--"]`. With no arguments `lake` prints its usage and exits, so the
+server never starts. No `env` block is needed: Lake finds the matching `lean`
+next to itself. A full environment block and the generator that should emit it
+are described below.
+
+JSON does **not** expand variables or placeholders. A literal `"$PATH"`,
+`"$HOME"` or `<prefix>` in `binary.env`/`path` is passed through unchanged and
+will break the launch. If you do write `env`, use absolute literal values, or
+leave `env` out.
+
 ## Why the error happens
 
 The extension resolves `lake` in this order:
