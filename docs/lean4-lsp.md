@@ -142,8 +142,9 @@ Rules:
 - If the worktree root is a parent of the Lake project, use
   `["--dir", "<project dir>", "serve", "--"]`. Extension 0.1.0 has no
   `lake_project_dir` setting; only `binary.arguments` reaches `lake`.
-- Add this entry only when `<prefix>/bin/lake` exists. It is not part of the
-  generator's server catalog: `lean4-lsp` belongs to a third-party Zed
+- Add this entry only when `<prefix>/bin/lake` exists; verify the path with
+  `pixi run which lake` in that project. It is not part of the generator's
+  server catalog: `lean4-lsp` belongs to a third-party Zed
   extension, not to a server Zed ships, and automatically pointing it at a
   pixi `lake` would override an elan/`lean-toolchain` setup.
 - Derive the prefix from the *selected project's own* `pixi info --json`
