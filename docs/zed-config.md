@@ -87,6 +87,11 @@ Zed's `dap` setting takes `binary`, `args` and `env`:
 }
 ```
 
+The extension itself provides the `pixi-gdb` (`gdb -i=dap`) and `pixi-lldb`
+(`lldb-dap`) adapters, started from the environment, so they need no generated
+settings (see README.md). The settings below cover the adapters the extension
+cannot route: Zed's built-in `CodeLLDB` and the port-based adapters.
+
 The script configures `CodeLLDB` (`lldb-dap` or `lldb-vscode`), `Debugpy`
 (`python -m debugpy.adapter`, only when the interpreter can import `debugpy`)
 and `Delve` (`dlv dap`). Launch profiles still belong in `.zed/debug.json`;
@@ -153,14 +158,6 @@ pixi run env-check rust-analyzer basedpyright-langserver taplo
 
 It uses the same environment selection and prints the `PATH` Zed processes
 should receive; a name that only exists on the host `PATH` makes it fail.
-
-## Checking the environment from Zed
-
-The extension also provides the `/pixi-env` slash command. It prints the
-resolved environment, its `bin` directory and the `PATH` Zed processes receive,
-and with arguments it checks that those tools resolve inside the environment
-(no host fallback). It is informational; writing the project settings is still
-this script's job.
 
 ## Known limits
 
