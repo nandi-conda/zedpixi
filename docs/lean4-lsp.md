@@ -1,5 +1,15 @@
 # Lean 4 language server through the pixi environment
 
+Scope: this repository (`p_58768d1b`) declares no `lean4` dependency on any
+branch -- its environment has `rust-analyzer`, `basedpyright`, `taplo` and
+`python` only, and no `lean` or `lake`. Nothing below is a claim about this
+repository's environment. The pixi toolchain measurements come from a
+throwaway pixi project that I created and that declared conda-forge `lean4`;
+they say what a *user's own* Lean project gets, nothing else. The rule for any
+fix is: the Lean 4 extension must resolve `lake` against the user's own project
+pixi environment -- the manifest that actually declares `lean4` -- and not
+against this repository's environment or Zed's captured shell PATH.
+
 Measured on this machine on 2026-10-27. Purpose: explain why Zed's Lean 4
 extension (id `lean4`, server id `lean4-lsp`, version 0.1.0 /
 `blackbird314/zed-lean4@22f5e1e`) reports
@@ -63,11 +73,11 @@ None of 1-3 is true when Lean comes from pixi: `pixi run` prepends
 Zed captures, and no elan is installed. So the extension throws; nothing is
 wrong with Lake itself.
 
-## What a pixi Lean environment contains
+## What a project that declares `lean4` gets (scratch test, not this repo)
 
-A project that declares `lean4` from conda-forge gets a complete standalone
-toolchain (verified with pixi 0.81.0 and re-checked with 0.83.0 in a scratch
-project):
+A project that itself declares `lean4` from conda-forge gets a complete
+standalone toolchain (verified with pixi 0.81.0 and re-checked with 0.83.0 in
+throwaway projects, not in this repository):
 
 | package | version |
 |---|---|
@@ -96,10 +106,11 @@ call the extension's own command recipe. Consequences:
 - `binary.env` **is** applied by Zed even though extension 0.1.0 passes
   `env: vec![]` in its own code path.
 
-## The configuration to generate
+## The configuration to generate (in the project that declares `lean4`)
 
-For a Lean project whose pixi manifest declares `lean4`, with the prefix taken
-from `pixi info --json` -> `environments_info[].prefix`:
+Only for the user's Lean project whose own pixi manifest declares `lean4` --
+never for this repository. The prefix is taken from that project's
+`pixi info --json` -> `environments_info[].prefix`:
 
 ```json
 {
@@ -145,27 +156,41 @@ Rules:
 - Do not use `elan_auto_install` for pixi projects: it downloads a second,
   unmanaged toolchain into `$HOME/.elan` and bypasses the pixi env.
 
-## Current state of this repository
+## Current state of this repository (corrected scope)
 
 The answer to "does Zed use the pixi-pinned Lean?" is **no, not by itself**.
-`pixi.toml` here (the Zed pixi extension itself) has no `lean4` dependency at
-all, and a Lean project that does pin `lean4 = "==4.33.0"` still reaches Zed
-only through the resolution order above: the extension looks at
+`pixi.toml` here (the Zed pixi extension itself) has no `lean4` dependency on
+any branch -- only `rust-analyzer`, `basedpyright`, `taplo` and `python` -- so
+its environment has no `lean` and no `lake`, and `pixi run zed-sync` here writes
+no `lsp.lean4-lsp` entry. Any statement that this repository's environment
+provides `lean`/`lake` is wrong: the measured `lean4` pin belongs to a separate
+throwaway Lean project's manifest, not to this repository.
+
+A Lean project that does pin `lean4 = "==4.33.0"` still reaches Zed only
+through the resolution order above: the extension looks at
 `lsp.lean4-lsp.binary.path`, the worktree shell `PATH` and elan, never at the
 pixi prefix. `pixi run` only changes `PATH` for the process it starts.
 
 `scripts/zed_pixi_sync.py` now emits the entry above when the selected
-environment contains `<prefix>/bin/lake`; it also emits it from the Lean
-project's own manifest, where `pixi add lean4` put the toolchain. That is the
-complete fix for a Lean project: `pixi add lean4`, run the generator, reload
-Zed. The generated files stay machine-specific and are not committed by this
-repository. `lake` then serves with the environment's own `lean`; `lean-toolchain`
-does not override it (see the measured table above), so the pixi dependency is
-what the server runs.
+environment contains `<prefix>/bin/lake`; in the Lean project, where
+`pixi add lean4` put the toolchain, that is what makes the server start. That is
+the complete fix for a Lean project: `pixi add lean4`, run the generator in
+that project, reload Zed. The generated files stay machine-specific and are not
+committed by this repository. `lake` then serves with the environment's own
+`lean`; `lean-toolchain` does not override it (see the measured table above), so
+the pixi dependency is what the server runs.
+
+The rule for any fix is therefore: resolve `lake` against the user's own
+project pixi environment -- the manifest that actually declares `lean4` -- never
+against this repository's environment or Zed's captured shell PATH. The code
+and generator changes are being audited by new threads; this file is background
+on the runtime resolution order and the measured behavior of the conda-forge
+`lean4` binaries.
 
 ## Verification
 
-Scratch project `/tmp/leancheck` with `[dependencies] lean4 = "==4.33.0"`:
+Scratch project `/tmp/leancheck` with `[dependencies] lean4 = "==4.33.0"`
+(throwaway, not this repository):
 
 - `pixi install` with pixi 0.83.0 put `lean` and `lake` in the prefix;
   `lean --version` printed 4.33.0, `lake --version` printed
@@ -181,7 +206,7 @@ Scratch project `/tmp/leancheck` with `[dependencies] lean4 = "==4.33.0"`:
 - The host has no `lake`, `lean` or elan (`command -v` finds none, no
   `~/.elan`), so without the entry the extension can only fail.
 
-Measured environment here: pixi 0.81.0; this project's env provides
+Measured environment here (my sandbox): pixi 0.81.0; this project's env provides
 rust-analyzer, basedpyright 1.40.2, taplo, python; prefix from
 `pixi info --json`. Nothing system-wide provides `lean`, `lake` or `elan`
 (`/usr/bin` has none, no `~/.elan`).
