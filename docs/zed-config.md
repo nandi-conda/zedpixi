@@ -99,7 +99,9 @@ formatter when its binary is in the environment and only when the project does
 not already choose one for that language. Prettier is used for the JavaScript
 family; StyLua for Lua. Conda's shims point at the environment interpreter
 absolutely, so they run without extra environment. Most formatting should come
-from the routed language servers (`ruff`, `basedpyright`) instead.
+from the routed language servers (`ruff`, `basedpyright`) instead. Linting is
+only provided by language servers as well: Zed has no separate external-linter
+setting.
 
 ### Terminals and tasks
 
