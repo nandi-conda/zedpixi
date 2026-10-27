@@ -94,12 +94,25 @@ The script knows these Zed server ids and their environment binaries:
 | `gopls` | `gopls` | |
 | `clangd` | `clangd` | |
 | `ruff` | `ruff` | `server` |
+| `lean4-lsp` | `lake` | `serve --` |
 
 Only these binaries are ever configured, and only from the selected
 environment. This repository declares `rust-analyzer`, `basedpyright`, `taplo`
 and `python`; no other server, toolchain or version pin is built into the
 generator. Add the matching pixi dependencies, for example `pixi add
 rust-analyzer taplo basedpyright yaml-language-server`.
+
+`lean4-lsp` comes from Zed's Lean 4 extension (id `lean4`), not from a server
+Zed ships. The entry is written only when the selected environment provides
+`lake`, and it must carry `arguments: ["serve", "--"]`: an explicit
+`binary.path` makes Zed start that path with exactly those arguments, and
+`lake` without arguments prints its usage and exits. `lake` finds the matching
+`lean` next to itself, so no other setting is needed. A hand-written
+`lsp.lean4-lsp` entry (one without the `PIXI_*` markers in `binary.env`, for
+example an elan or `lean-toolchain` setup) is left untouched by both a write
+and `--check`, because it names a toolchain the project chose on purpose.
+A generated entry is updated like the others and removed when the environment
+no longer provides `lake`. See [lean4-lsp.md](lean4-lsp.md).
 
 ### Debug adapters
 

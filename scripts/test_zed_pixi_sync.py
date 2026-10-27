@@ -247,6 +247,20 @@ class DiscoverTests(TemporaryProject):
         self.assertIn("Debugpy", dap)
         self.assertEqual(dap["Debugpy"]["args"], ["-m", "debugpy.adapter"])
 
+    def test_lean4_server_runs_lake_serve(self) -> None:
+        make_executable(self.prefix / "bin" / "lake")
+        make_executable(self.prefix / "bin" / "lean")
+        lsp, _, _ = sync.discover(str(self.prefix), False, {"PATH": "x"})
+        self.assertEqual(
+            lsp["lean4-lsp"]["binary"]["path"], str(self.prefix / "bin" / "lake")
+        )
+        self.assertEqual(lsp["lean4-lsp"]["binary"]["arguments"], ["serve", "--"])
+
+    def test_lean4_server_needs_lake_not_lean(self) -> None:
+        make_executable(self.prefix / "bin" / "lean")
+        lsp, _, _ = sync.discover(str(self.prefix), False, {})
+        self.assertNotIn("lean4-lsp", lsp)
+
     def test_formatter_is_added_for_installed_binary(self) -> None:
         make_executable(self.prefix / "bin" / "prettier")
         _, _, languages = sync.discover(str(self.prefix), False, {})
@@ -330,6 +344,47 @@ class SettingsTests(TemporaryProject):
             "default", str(self.prefix), self.root, self.manifest, False, existing
         )
         self.assertEqual(settings["lsp"]["lean4-lsp"], existing["lsp"]["lean4-lsp"])
+
+    def test_updates_a_generated_lean4_entry(self) -> None:
+        make_executable(self.prefix / "bin" / "lake")
+        old_prefix = self.root / "old-env"
+        entry = generated_lsp(old_prefix, "lake", self.root, self.manifest)
+        entry["binary"]["arguments"] = ["serve", "--"]
+        existing = {"lsp": {"lean4-lsp": entry}}
+        settings = sync.managed_settings(
+            "default", str(self.prefix), self.root, self.manifest, False, existing
+        )
+        binary = settings["lsp"]["lean4-lsp"]["binary"]
+        self.assertEqual(binary["path"], str(self.prefix / "bin" / "lake"))
+        self.assertEqual(binary["arguments"], ["serve", "--"])
+        self.assertEqual(binary["env"]["PIXI_PROJECT_ROOT"], str(self.root))
+
+    def test_keeps_a_hand_written_elan_entry_when_the_environment_has_lake(self) -> None:
+        make_executable(self.prefix / "bin" / "lake")
+        elan = {
+            "binary": {
+                "path": "/home/user/.elan/bin/lake",
+                "arguments": ["serve", "--"],
+            }
+        }
+        existing = {"lsp": {"lean4-lsp": elan}}
+        settings = sync.managed_settings(
+            "default", str(self.prefix), self.root, self.manifest, False, existing
+        )
+        self.assertEqual(settings["lsp"]["lean4-lsp"], elan)
+
+    def test_prunes_a_generated_lean4_entry_when_lake_is_gone(self) -> None:
+        existing = {
+            "lsp": {
+                "lean4-lsp": generated_lsp(
+                    self.prefix, "lake", self.root, self.manifest
+                )
+            }
+        }
+        settings = sync.managed_settings(
+            "default", str(self.prefix), self.root, self.manifest, False, existing
+        )
+        self.assertNotIn("lean4-lsp", settings.get("lsp", {}))
 
     def test_prunes_entries_generated_for_another_project(self) -> None:
         foreign = self.root / "foreign"
@@ -529,6 +584,44 @@ class EndToEndTests(TemporaryProject):
         settings = json.loads(settings_path.read_text())
         self.assertNotIn("taplo", settings["lsp"])
         self.assertIn("my-server", settings["lsp"])
+        self.assertEqual(self.run_main("--check")[0], 0)
+
+    def test_writes_and_prunes_the_lean4_server(self) -> None:
+        make_executable(self.prefix / "bin" / "lake")
+        code, output = self.run_main()
+        self.assertEqual(code, 0, output)
+        settings_path = self.root / ".zed" / "settings.json"
+        binary = json.loads(settings_path.read_text())["lsp"]["lean4-lsp"]["binary"]
+        self.assertEqual(binary["path"], str(self.prefix / "bin" / "lake"))
+        self.assertEqual(binary["arguments"], ["serve", "--"])
+        self.assertEqual(binary["env"]["PIXI_PROJECT_ROOT"], str(self.root))
+        self.assertEqual(self.run_main("--check")[0], 0)
+
+        (self.prefix / "bin" / "lake").unlink()
+        code, output = self.run_main("--check")
+        self.assertEqual(code, 1)
+        self.assertIn("does not exist", output)
+
+        self.assertEqual(self.run_main()[0], 0)
+        settings = json.loads(settings_path.read_text())
+        self.assertNotIn("lean4-lsp", settings.get("lsp", {}))
+
+    def test_hand_written_lean4_entry_survives_sync_and_check(self) -> None:
+        make_executable(self.prefix / "bin" / "lake")
+        manual = {
+            "binary": {
+                "path": "/home/user/.elan/bin/lake",
+                "arguments": ["serve", "--"],
+            }
+        }
+        settings_path = self.root / ".zed" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+        settings_path.write_text(json.dumps({"lsp": {"lean4-lsp": manual}}))
+
+        code, output = self.run_main()
+        self.assertEqual(code, 0, output)
+        settings = json.loads(settings_path.read_text())
+        self.assertEqual(settings["lsp"]["lean4-lsp"], manual)
         self.assertEqual(self.run_main("--check")[0], 0)
 
     def test_pixi_describing_another_project_is_an_error(self) -> None:

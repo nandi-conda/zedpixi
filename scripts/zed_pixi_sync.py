@@ -53,7 +53,7 @@ class SyncError(Exception):
 
 @dataclass(frozen=True)
 class Lsp:
-    """A language server Zed ships, and the binaries a pixi package installs."""
+    """A language server with a Zed settings id, and its pixi binaries."""
 
     id: str
     binaries: tuple[tuple[str, tuple[str, ...]], ...]
@@ -81,8 +81,8 @@ class Formatter:
     arguments: tuple[str, ...]
 
 
-# The language servers Zed runs itself. A pixi dependency that provides one of
-# these binaries makes Zed use the copy from the environment.
+# The language servers the generator configures. A pixi dependency that
+# provides one of these binaries makes Zed use the copy from the environment.
 #
 # `id` is Zed's language server id, which is also what the `lsp` section of
 # settings.json uses. `arguments` are the LSP-over-stdio arguments the server
@@ -97,7 +97,20 @@ LANGUAGE_SERVERS: tuple[Lsp, ...] = (
     Lsp("gopls", (("gopls", ()),)),
     Lsp("clangd", (("clangd", ()),)),
     Lsp("ruff", (("ruff", ("server",)),)),
+    # Zed's Lean 4 extension (server id `lean4-lsp`) starts `lake serve --`; a
+    # pixi `lean4` package installs that `lake`. The extension's own recipe
+    # looks for `lake` on the worktree shell PATH or in ELAN_HOME, never in the
+    # pixi environment, so the explicit path below is what makes it work.
+    Lsp("lean4-lsp", (("lake", ("serve", "--")),)),
 )
+
+# Servers for which a hand-written entry wins over the environment copy. A
+# project that configures one of these by hand (an elan toolchain, a
+# lean-toolchain pin) has chosen its toolchain deliberately; silently pointing
+# it at the pixi copy would change which Lean version it runs. Only entries
+# without the generated markers are kept; a generated entry is still updated
+# and pruned like every other.
+HAND_WRITTEN_WINS = frozenset({"lean4-lsp"})
 
 # Debug adapters. `binary` is the adapter, not the debugger. Zed's `dap`
 # settings accept `binary`, `args` and `env` for adapters it ships.
@@ -525,6 +538,8 @@ def managed_settings(
         if not isinstance(current, dict):
             managed_lsp[server_id] = fragment
             continue
+        if server_id in HAND_WRITTEN_WINS and not is_generated(current):
+            continue
         binary = current.get("binary")
         if isinstance(binary, dict):
             binary.update(fragment["binary"])
@@ -762,6 +777,15 @@ def check(
     for section in ("lsp", "dap"):
         for key, fragment in settings.get(section, {}).items():
             actual = on_disk.get(section, {}).get(key)
+            if (
+                section == "lsp"
+                and key in HAND_WRITTEN_WINS
+                and isinstance(actual, dict)
+                and not is_generated(actual)
+            ):
+                # The project chose this toolchain by hand; the environment
+                # copy is not what Zed runs, so it cannot be stale.
+                continue
             if not contains(fragment, actual):
                 problems.append(
                     f"{section}.{key} is stale in {SETTINGS_FILE}; {RUN_HINT}"
