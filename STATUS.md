@@ -1,7 +1,7 @@
 # Zed pixi extension — consolidated status
 
-As of 2026-10-27 13:47 PDT, updated at 14:00 after the main check. Source of
-truth: git refs in `.repos/p_58768d1b` and the thread transcripts.
+As of 2026-10-27 13:47 PDT, updated after the main check and the capability fix.
+Source of truth: git refs in `.repos/p_58768d1b` and the thread transcripts.
 
 ## Main check: main has the work
 
@@ -13,13 +13,19 @@ tree has 13 files: `Cargo.toml`, `Cargo.lock`, `extension.toml`, `pixi.toml`,
 `STATUS.md`, main's content is byte-identical to `ca055a4`; the report came from
 `b7b2bb7`. The `b7db55e`/`ee55437` line on `thread/t_b13a9378` is **not** on main.
 
-One defect is present on main. `src/pixi.rs` runs pixi from the absolute path
-returned by `worktree.which("pixi")`, but `extension.toml` grants
-`process:exec` for `command = "pixi"`. Zed matches that command exactly, so the
-call is rejected at runtime. `ee55437` fixes it with `command = "*"` and fixed
-`info --json --manifest-path` args; that change is not on main. Running the bare
-name `pixi` (letting the host resolve it) would also fix it. The build and tests
-of `39a44d1` have not been re-run since landing.
+One defect was present on main. `src/pixi.rs` runs pixi from the absolute path
+returned by `worktree.which("pixi")`, but `extension.toml` granted
+`process:exec` for `command = "pixi"`. Zed's `ProcessExecCapability::allows`
+compares the command exactly (or `*`), so the call was rejected at runtime.
+`ee55437` proposed the fix, and t_cb5730e5 landed it as `e64dfa7` on
+`thread/t_cb5730e5`: `command = "*"` with args unchanged. That commit is not on
+main yet; it lands with that thread's branch. Running the bare name `pixi`
+(letting the host resolve it) would also have fixed it.
+
+Build verification, by t_cb5730e5 in its sandbox with rustup 1.99.1 and
+`wasm32-wasip2`, on the `39a44d1` tree: `cargo test` 7/7 passed, `cargo build
+--release --target wasm32-wasip2` produced a 7.9 MB wasm, and native discovery
+found rust-analyzer, basedpyright-langserver and taplo in the pixi environment.
 
 ## Current refs (verified with git)
 
@@ -30,7 +36,8 @@ of `39a44d1` have not been re-run since landing.
 | `thread/t_4d07a756` | `4a5036c` | monitor thread, no changes |
 | `thread/t_b92466fa` | `4a5036c` | status thread, no changes |
 | `thread/t_564eba78` | `ca055a4` | `4a5036c` + strict root-manifest env refactor, capabilities, tasks, `.gitignore` |
-| `thread/t_b13a9378` | `ee55437` | same feature set, rewritten from `c1b21d2` (does not descend from `4a5036c`); `ee55437` adds the capability fix main needs |
+| `thread/t_b13a9378` | `ee55437` | same feature set, rewritten from `c1b21d2` (does not descend from `4a5036c`); first carried the capability fix |
+| `thread/t_cb5730e5` | `e64dfa7` | `39a44d1` + the capability fix (`command = "*"`) |
 | `thread/t_bd59ce08` | `87da5fe` | `4a5036c` + capabilities, pixi tasks, `.zed/tasks.json`, `scripts/zed-pixi.sh`, `/target` ignore + untrack |
 
 **Main history.** `origin/main` was `c1b21d2`, then `4a5036c` from 13:31 to
@@ -80,14 +87,14 @@ carries the `ca055a4` source refactor. `b7db55e` and `ee55437` do not contain
    `wasm32-wasip2` target in its own HOME (verified: `cargo build --release
    --target wasm32-wasip2` succeeds on the `4a5036c` tree in ~41 s). There is no
    Zed binary in the sandbox, so actually loading the dev extension is untested.
-4. **The refactor is landed, but unverified and missing one capability fix.**
-   `ca055a4`'s content is on main as `39a44d1`. Its commit message claims
-   `cargo test` 7/7, release wasm and native-check, but no build output appears in
-   its transcript, so treat that as unverified. Main's `extension.toml` grants
-   `command = "pixi"` while the code runs an absolute path, which Zed rejects;
-   `ee55437` has the matching fix. `87da5fe` (t_bd59ce08) adds the capabilities,
-   tasks, helper script and `/target` cleanup but contains no build of the
-   refactored code.
+4. **The refactor is landed and verified; one capability fix is still in flight.**
+   `ca055a4`'s content is on main as `39a44d1`, and t_cb5730e5 ran `cargo test`
+   7/7, the release wasm build and native discovery against that tree. Main's
+   `extension.toml` still grants `command = "pixi"` while the code runs an
+   absolute path, which Zed rejects; the fix is `e64dfa7` on
+   `thread/t_cb5730e5` and lands with that branch. `87da5fe` (t_bd59ce08) adds
+   the capabilities, tasks, helper script and `/target` cleanup but contains no
+   build of the refactored code.
 
 ## Branch inventory
 
@@ -124,15 +131,14 @@ carries the `ca055a4` source refactor. `b7db55e` and `ee55437` do not contain
 2. **Clear the session-lease conflicts.** Stop the other prime-agent window/build
    or kill the stale holders (`411789`, `412128`, `413013`, `419566`) before
    restarting the failed threads; otherwise they fail again at startup.
-3. **Landing is done.** Main has the `ca055a4` line as `39a44d1`. Still open:
-   apply `ee55437`'s `command = "*"` capability fix (or run bare `pixi`), decide
-   whether to keep the `$PATH` server fallback that main has, and optionally bring
-   over `87da5fe`'s `.zed/tasks.json` and `scripts/zed-pixi.sh`.
-4. **Re-verify after the merge** in a thread with rustup:
-   `rustup target add wasm32-wasip2`; `pixi install`;
-   `cargo test`; `cargo build --release --target wasm32-wasip2`;
-   `pixi run native-check` (or `discover`) against the installed project env.
-   Then try **Install Dev Extension** in a real Zed and enable one server.
+3. **Landing is done.** Main has the `ca055a4` line as `39a44d1`, and its build
+   and tests are verified. Still open: land `e64dfa7`'s `command = "*"` capability
+   fix with t_cb5730e5's branch, decide whether to keep the `$PATH` server
+   fallback that main has, and optionally bring over `87da5fe`'s
+   `.zed/tasks.json` and `scripts/zed-pixi.sh`.
+4. **Remaining validation:** try **Install Dev Extension** in a real Zed and
+   enable one server. There is no Zed binary in the sandboxes, so loading the
+   extension is still untested.
 5. **Land only source, docs, tasks and script; never `target/`.** Check
    `git ls-files target | wc -l` is 0 before landing, and keep `/extension.wasm`
    ignored.
