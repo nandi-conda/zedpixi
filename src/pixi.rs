@@ -7,6 +7,11 @@
 //! Windows). There is no host-`PATH` fallback: a tool that is not in the pixi
 //! environment is not used by the extension.
 //!
+//! The response must name the workspace's own manifest in
+//! `project_info.manifest_path` (see [`verify_project`]). A response for a
+//! different project, a parent directory or an ambient environment is
+//! rejected, so no foreign environment or toolchain can be used.
+//!
 //! Zed's extension API cannot change the environment of the language servers,
 //! debug adapters, tasks or formatters that Zed itself starts. The helpers
 //! here are therefore also exposed for project settings: `command_env` builds
@@ -75,10 +80,58 @@ fn pixi_info(pixi: &str, manifest_path: &str) -> Result<(String, String), String
         ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: Value = serde_json::from_str(&stdout)
+    parse_info(&output.stdout, manifest_path)
+}
+
+/// Read a `pixi info --json` response for `manifest_path`.
+///
+/// The response is only accepted when pixi reports the same manifest in
+/// `project_info.manifest_path`. That check ties the environment to the
+/// workspace's own `pixi.toml`: the output for another project, a parent
+/// directory or an ambient environment cannot be used even when it parses.
+pub fn parse_info(stdout: &[u8], manifest_path: &str) -> Result<(String, String), String> {
+    let value: Value = serde_json::from_slice(stdout)
         .map_err(|err| format!("could not parse `pixi info --json` output: {err}"))?;
+    verify_project(&value, manifest_path)?;
     select_environment(&value)
+}
+
+/// Reject a `pixi info --json` response that belongs to another manifest.
+///
+/// `manifest_path` is the workspace root's `pixi.toml`; the response must name
+/// the same file in `project_info.manifest_path`. A missing `project_info` is
+/// an error too: without it the environment cannot be tied to this workspace.
+pub fn verify_project(value: &Value, manifest_path: &str) -> Result<(), String> {
+    let reported = value
+        .get("project_info")
+        .and_then(|project| project.get("manifest_path"))
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "`pixi info --json` did not report `project_info.manifest_path`, \
+                 so the environment cannot be tied to the workspace manifest \
+                 {manifest_path}. Update pixi."
+            )
+        })?;
+
+    if normalize_path(reported) != normalize_path(manifest_path) {
+        return Err(format!(
+            "`pixi info --json` resolved a different project: it reported {reported}, \
+             but the workspace manifest is {manifest_path}. Refusing to use an \
+             environment from outside this workspace."
+        ));
+    }
+    Ok(())
+}
+
+/// Compare paths the way pixi reports them: forward slashes, no trailing slash.
+fn normalize_path(path: &str) -> String {
+    let mut normalized = path.replace('\\', "/");
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+    normalized.trim_end_matches('/').to_string()
 }
 
 /// Pick the environment out of `pixi info --json` output.
@@ -331,6 +384,87 @@ mod tests {
         .unwrap();
         let error = select_environment(&value).unwrap_err();
         assert!(error.contains("pixi install"), "{error}");
+    }
+
+    const WORKSPACE_MANIFEST: &str = "/home/me/project/pixi.toml";
+
+    #[test]
+    fn accepts_a_response_for_the_workspace_manifest() {
+        let info = r#"{
+            "project_info": {"name": "project", "manifest_path": "/home/me/project/pixi.toml"},
+            "environments_info": [{"name": "default", "prefix": "/home/me/project/.pixi/envs/default"}]
+        }"#;
+        assert_eq!(
+            parse_info(info.as_bytes(), WORKSPACE_MANIFEST).unwrap(),
+            (
+                "default".to_string(),
+                "/home/me/project/.pixi/envs/default".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_a_foreign_project_manifest() {
+        // A perfectly valid response, but for another project.
+        let info = r#"{
+            "project_info": {"name": "leancheck", "manifest_path": "/tmp/leancheck/pixi.toml"},
+            "environments_info": [{"name": "default", "prefix": "/tmp/leancheck/.pixi/envs/default"}]
+        }"#;
+        let error = parse_info(info.as_bytes(), WORKSPACE_MANIFEST).unwrap_err();
+        assert!(error.contains("/tmp/leancheck/pixi.toml"), "{error}");
+        assert!(error.contains(WORKSPACE_MANIFEST), "{error}");
+        assert!(error.contains("outside this workspace"), "{error}");
+    }
+
+    #[test]
+    fn rejects_a_response_without_a_project_manifest() {
+        let info = r#"{"environments_info": [{"name": "default", "prefix": "/env"}]}"#;
+        let error = parse_info(info.as_bytes(), WORKSPACE_MANIFEST).unwrap_err();
+        assert!(error.contains("project_info.manifest_path"), "{error}");
+        assert!(error.contains(WORKSPACE_MANIFEST), "{error}");
+    }
+
+    #[test]
+    fn a_foreign_lean_pin_cannot_leak_in() {
+        // Another Lean project pins `lean4 = "==4.33.0"` and has a `lake` in
+        // its prefix. Nothing about it may reach this workspace.
+        let foreign = r#"{
+            "project_info": {"name": "leancheck", "manifest_path": "/tmp/leancheck/pixi.toml"},
+            "environments_info": [{
+                "name": "default",
+                "prefix": "/tmp/leancheck/.pixi/envs/default",
+                "dependencies": ["lean4"]
+            }]
+        }"#;
+        assert!(parse_info(foreign.as_bytes(), WORKSPACE_MANIFEST).is_err());
+
+        // This workspace has no `lean4`, so it has no `lake` either; the one
+        // in the foreign prefix is never considered.
+        let local = r#"{
+            "project_info": {"name": "project", "manifest_path": "/home/me/project/pixi.toml"},
+            "environments_info": [{
+                "name": "default",
+                "prefix": "/home/me/project/.pixi/envs/default",
+                "dependencies": ["rust-analyzer", "basedpyright", "taplo", "python"]
+            }]
+        }"#;
+        let (_, prefix) = parse_info(local.as_bytes(), WORKSPACE_MANIFEST).unwrap();
+        let error = resolve_tool_with(&prefix, "lake", false, |path| {
+            path == "/tmp/leancheck/.pixi/envs/default/bin/lake"
+        })
+        .unwrap_err();
+        assert!(error.contains("not in the pixi environment"), "{error}");
+        assert!(!error.contains("leancheck"), "{error}");
+    }
+
+    #[test]
+    fn compares_paths_the_way_pixi_reports_them() {
+        assert_eq!(normalize_path("/a//b/"), "/a/b");
+        assert_eq!(normalize_path(r"C:\a\b\pixi.toml"), "C:/a/b/pixi.toml");
+        assert_ne!(
+            normalize_path("/a/b/pixi.toml"),
+            normalize_path("/a/c/pixi.toml")
+        );
     }
 
     #[test]

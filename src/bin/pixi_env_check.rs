@@ -62,7 +62,11 @@ fn run() -> Result<(), String> {
             manifest.display()
         ));
     }
-    let manifest = manifest.to_string_lossy().to_string();
+    // pixi reports the canonical manifest path, so canonicalize ours too.
+    let manifest = fs::canonicalize(&manifest)
+        .map_err(|error| format!("could not resolve the manifest path: {error}"))?
+        .to_string_lossy()
+        .to_string();
 
     let pixi = which_pixi().ok_or_else(|| {
         "pixi was not found on PATH. The extension never guesses an environment \
@@ -81,9 +85,7 @@ fn run() -> Result<(), String> {
         ));
     }
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("could not parse pixi info output: {error}"))?;
-    let (name, prefix) = pixi::select_environment(&value)?;
+    let (name, prefix) = pixi::parse_info(&output.stdout, &manifest)?;
 
     let windows = cfg!(windows);
     let bin_dir = pixi::env_bin_dir(&prefix, windows);
