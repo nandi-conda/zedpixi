@@ -238,8 +238,12 @@ Steps:
 1. In the command palette, run **`zed: install dev extension`**. The same button
    is in the top right of the **`zed: extensions`** page.
 2. Select this repository directory (the one containing `extension.toml` and
-   `Cargo.toml`). Zed compiles it with `cargo build --release --target
-   wasm32-wasip2` and loads `target/wasm32-wasip2/release/zed_pixi.wasm`.
+   `Cargo.toml`). Zed compiles it with `cargo build --target wasm32-wasip2`:
+   a dev install uses the debug profile (`--release` is not passed) and loads
+   `target/wasm32-wasip2/debug/zed_pixi.wasm`, then copies it to
+   `extension.wasm` in the same directory. If the install fails with
+   "compiling Rust extension", see
+   [docs/zed-install-troubleshooting.md](docs/zed-install-troubleshooting.md).
 3. Open the pixi project directory itself in Zed: the workspace root must
    contain `pixi.toml`.
 4. Point the language servers, debug adapters, tasks and formatters you use at
@@ -271,7 +275,8 @@ the `*` version.
 
 ## Building
 
-To build the same wasm artifact by hand:
+To build a release wasm artifact by hand (a dev install compiles the debug
+profile itself, as described above):
 
 ```sh
 rustup target add wasm32-wasip2
