@@ -139,6 +139,21 @@ class DiscoverTests(TemporaryProject):
         self.assertEqual(dap, {})
         self.assertEqual(languages, {})
 
+    def test_lean4_lsp_uses_lake(self) -> None:
+        make_executable(self.prefix / "bin" / "lake")
+        make_executable(self.prefix / "bin" / "lean")
+        env = {"PATH": "x"}
+        lsp, _, _ = sync.discover(str(self.prefix), False, env)
+        binary = lsp["lean4-lsp"]["binary"]
+        self.assertEqual(binary["path"], str(self.prefix / "bin" / "lake"))
+        self.assertEqual(binary["arguments"], ["serve", "--"])
+        self.assertEqual(binary["env"], env)
+
+    def test_lean_without_lake_writes_no_lean4_lsp(self) -> None:
+        make_executable(self.prefix / "bin" / "lean")
+        lsp, _, _ = sync.discover(str(self.prefix), False, {})
+        self.assertEqual(lsp, {})
+
     def test_debug_adapter_uses_adapter_binary(self) -> None:
         make_executable(self.prefix / "bin" / "lldb-dap")
         _, dap, _ = sync.discover(str(self.prefix), False, {"PATH": "x"})

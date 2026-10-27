@@ -1,5 +1,25 @@
 # Zed pixi extension — consolidated status
 
+## 2026-10-27: Lean 4 language server entry in the generator
+
+`scripts/zed_pixi_sync.py` now knows `lean4-lsp`: when the selected
+environment contains `<prefix>/bin/lake`, it writes
+
+```json
+"lean4-lsp": {"binary": {"path": "<prefix>/bin/lake",
+  "arguments": ["serve", "--"], "env": {...}}}
+```
+
+That is the only way Zed's built-in `lean4` extension finds a pixi `lean4`
+toolchain; it never reads the pixi prefix itself (resolution order and
+measurements in `docs/lean4-lsp.md`). Two tests were added: `lake` produces the
+entry with `serve --`, and `lean` without `lake` produces none.
+
+Verified: `python3 -m unittest discover -s scripts -p 'test_*.py'` 24/24, and a
+scratch `lean4 = "==4.33.0"` project under pixi 0.83.0 generates the entry,
+passes `--check`, and the generated `lake serve --` answers an LSP
+`initialize` with `Lean 4 Server 0.3.0` under `PATH=/usr/bin:/bin`.
+
 ## 2026-10-27: debug adapters and the capability audit
 
 Addition on top of the no-custom-LSP shape (main `d910020`). No language

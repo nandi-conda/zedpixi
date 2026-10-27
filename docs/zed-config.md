@@ -70,6 +70,14 @@ The script knows these Zed server ids and their environment binaries:
 | `gopls` | `gopls` | |
 | `clangd` | `clangd` | |
 | `ruff` | `ruff` | `server` |
+| `lean4-lsp` | `lake` | `serve --` |
+
+`lean4-lsp` is Zed's built-in `lean4` extension server. Its launch recipe is
+`lake serve --`, so the generator points `binary.path` at the environment's
+`lake` (installed by the conda-forge `lean4` package) and repeats those
+arguments. No `ELAN_HOME` is written: with a pixi `lean4` dependency the
+toolchain is in the environment, not in elan. See
+[lean4-lsp.md](lean4-lsp.md) for the resolution order of the extension.
 
 Add the matching pixi dependencies, for example `pixi add rust-analyzer taplo
 basedpyright yaml-language-server`.

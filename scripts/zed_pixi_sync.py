@@ -89,6 +89,10 @@ LANGUAGE_SERVERS: tuple[Lsp, ...] = (
     Lsp("gopls", (("gopls", ()),)),
     Lsp("clangd", (("clangd", ()),)),
     Lsp("ruff", (("ruff", ("server",)),)),
+    # Zed's `lean4` extension starts `lake serve --`; a conda-forge `lean4`
+    # dependency installs that `lake` (with `lean` next to it) in the env.
+    # `lean --server` is not the server the extension launches.
+    Lsp("lean4-lsp", (("lake", ("serve", "--")),)),
 )
 
 # Debug adapters. `binary` is the adapter, not the debugger. Zed's `dap`
