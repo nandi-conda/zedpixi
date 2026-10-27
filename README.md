@@ -227,7 +227,12 @@ Prerequisites:
 
    Zed builds extensions with `wasm32-wasip2` and adds the target itself when
    Rust comes from `rustup`. Rust from conda or Homebrew is not enough unless
-   that toolchain also provides the target.
+   that toolchain also provides the target. Having `rustup` on `PATH` is not
+   always enough for Zed either: it captures a login and interactive shell
+   environment once at startup, so a GUI launch can differ from a terminal
+   launch. If the build fails with `running rustc: No such file or
+   directory`, see
+   [docs/zed-rust-toolchain.md](docs/zed-rust-toolchain.md).
 
 2. `pixi` on the `PATH` of the process that launches Zed. On macOS, Zed started
    from the Dock may not see `~/.pixi/bin`; check by running `which pixi`, or
@@ -238,8 +243,9 @@ Steps:
 1. In the command palette, run **`zed: install dev extension`**. The same button
    is in the top right of the **`zed: extensions`** page.
 2. Select this repository directory (the one containing `extension.toml` and
-   `Cargo.toml`). Zed compiles it with `cargo build --target wasm32-wasip2`:
-   a dev install uses the debug profile (`--release` is not passed) and loads
+   `Cargo.toml`). Zed compiles it with `cargo build --target wasm32-wasip2
+   --target-dir <repo>/target`: a dev install uses the debug profile
+   (`--release` is not passed) and loads
    `target/wasm32-wasip2/debug/zed_pixi.wasm`, then copies it to
    `extension.wasm` in the same directory. If the install fails with
    "compiling Rust extension", see
