@@ -12,8 +12,9 @@ pixi add rust-analyzer taplo basedpyright
 
 The extension uses the project the workspace opens: the `pixi.toml` at the
 workspace root. It asks `pixi info --json --manifest-path` for that manifest,
-picks the first matching server binary that exists, and starts it with the
-environment's `bin` directory first on `PATH`.
+looks for the server binary inside that environment's `bin` directory, and
+hands Zed the binary's absolute path. A server that is on your `PATH` but not
+part of the environment is not used.
 
 ## Supported servers
 
@@ -67,6 +68,22 @@ If `pixi` is not on `PATH`, the extension reports that and stops; it never
 guesses a `.pixi/envs` path. If `<workspace root>/pixi.toml` is missing, it says
 so and asks you to open the project directory itself.
 
+### Which binary is started
+
+Resolution is the same for every executable the extension launches, not just
+language servers:
+
+1. Look for the binary at `<prefix>/bin/<binary>` (`<prefix>/Scripts` on
+   Windows) and hand Zed that absolute path.
+2. If the binary is not part of the environment, the extension stops with an
+   error listing the paths it checked. It does not fall back to a copy on the
+   host `PATH`, so the server that runs is always the one from the pixi
+   environment.
+
+The environment's `bin` directory is also first on the `PATH` passed to every
+command the extension starts, so the command runs with the environment's
+interpreters and tools.
+
 ## Overriding a server binary
 
 The standard Zed LSP settings work per server id:
@@ -92,9 +109,10 @@ The standard Zed LSP settings work per server id:
 - `binary.env` is merged over the environment variables the extension sets.
 - `initialization_options` and `settings` are passed through to the server.
 
-If no pixi server binary is found, the extension falls back to the same binary on
-`$PATH`. Otherwise Zed reports which paths were checked and which `pixi add`
-command installs the server.
+An explicit `binary.path` wins over discovery. Without one, the server must be
+part of the pixi environment: when no candidate binary is found there, Zed
+reports which environment paths were checked and which `pixi add` command
+installs the server.
 
 ## Environment variables passed to servers
 
@@ -168,6 +186,14 @@ The extension runs `pixi` through the absolute path returned by
 `worktree.which("pixi")`, so `extension.toml` grants `command = "*"` for
 `info --json --manifest-path *`. A checkout that still says `command = "pixi"`
 gets that call rejected by Zed at runtime; keep the `*` version.
+
+`process:exec` only gates commands that extension code starts with
+`zed_extension_api::process::Command`. For this extension that is `pixi info`
+and the `/bin/sh` or `powershell` check that tests whether a candidate binary
+is executable. The language server binary itself is started by Zed's own
+process, not by extension code, so an absolute path into the pixi environment
+needs no extra capability for it. The fallback `/bin/sh -c` check passes the
+candidate path as an argument, which the `["-c", "**"]` pattern already covers.
 
 ## Building
 

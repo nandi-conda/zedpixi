@@ -2,10 +2,10 @@
 //! provide them.
 //!
 //! Each entry lists candidates in preference order. The first candidate whose
-//! binary is present in the pixi environment (or, failing that, on `$PATH`) is
-//! used. A candidate carries the arguments needed to speak LSP over stdio and
-//! the arguments used to probe whether the binary runs.
+//! binary is present in the pixi environment is used; the host `$PATH` is not
+//! consulted. A candidate carries the arguments needed to speak LSP over stdio.
 
+#[derive(Debug)]
 pub struct Candidate {
     pub binary: &'static str,
     pub lsp_args: &'static [&'static str],

@@ -23,9 +23,7 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let root = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| ".".to_string());
+    let root = std::env::args().nth(1).unwrap_or_else(|| ".".to_string());
     let root = std::path::absolute(&root).map_err(|error| error.to_string())?;
     let root = root.to_string_lossy().to_string();
 
@@ -62,14 +60,23 @@ fn run() -> Result<(), String> {
 
     let windows = cfg!(windows);
     for spec in servers::SERVERS {
+        // The same rule as the extension: the binary must be part of the pixi
+        // environment.
         let mut checked = Vec::new();
-        let found = pixi::pick_candidate(
-            spec.candidates,
-            &prefix,
-            windows,
-            |path| Path::new(path).is_file(),
-            &mut checked,
-        );
+        let mut found = None;
+        for candidate in spec.candidates {
+            let path = pixi::resolve_tool(
+                &prefix,
+                candidate.binary,
+                windows,
+                |path| Path::new(path).is_file(),
+                &mut checked,
+            );
+            if let Some(path) = path {
+                found = Some((path, candidate));
+                break;
+            }
+        }
         match found {
             Some((path, candidate)) => {
                 println!("{}: {} {:?}", spec.id, path, candidate.lsp_args);

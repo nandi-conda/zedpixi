@@ -1,11 +1,12 @@
 //! A Zed extension that starts language servers from a project's pixi
 //! environment.
 //!
-//! The environment comes from the `pixi.toml` at the worktree root. For every
-//! server this extension provides, it looks for the server binary in the
-//! environment's `bin` directory (or `Scripts` on Windows), then falls back to
-//! `$PATH`. The server binary and its arguments can be overridden with the
-//! usual Zed LSP settings.
+//! The environment comes from the `pixi.toml` at the worktree root. Every
+//! command the extension launches is resolved from that environment: the copy
+//! in its `bin` directory (or `Scripts` on Windows) is handed to Zed as an
+//! absolute path, and a tool that is not part of the environment is not used.
+//! The server binary and its arguments can be overridden with the usual Zed LSP
+//! settings.
 
 use zed_extension_api as zed;
 
@@ -28,8 +29,8 @@ impl zed::Extension for PixiExtension {
         worktree: &Worktree,
     ) -> zed::Result<zed::Command> {
         let id: &str = language_server_id.as_ref();
-        let spec = servers::spec(id)
-            .ok_or_else(|| format!("pixi extension does not provide `{id}`"))?;
+        let spec =
+            servers::spec(id).ok_or_else(|| format!("pixi extension does not provide `{id}`"))?;
         let settings = LspSettings::for_worktree(id, worktree).unwrap_or_default();
         let binary = settings.binary;
         let (os, _arch) = zed::current_platform();
@@ -51,50 +52,43 @@ impl zed::Extension for PixiExtension {
         }
 
         let env = pixi::resolve(worktree)?;
+
+        // Only tools that are part of the environment are used: the host PATH
+        // is never consulted.
         let mut checked = Vec::new();
-
-        let found = pixi::pick_candidate(
-            spec.candidates,
-            &env.prefix,
-            windows,
-            |path| pixi::is_executable(path, windows),
-            &mut checked,
-        );
-        if let Some((path, candidate)) = found {
-            let args = binary
-                .as_ref()
-                .and_then(|binary| binary.arguments.clone())
-                .unwrap_or_else(|| default_args(candidate));
-            let defaults = pixi::command_env(worktree, &env, windows);
-            let env = pixi::merge_env(defaults, binary.as_ref().and_then(|b| b.env.clone()));
-            return Ok(command(path, args, env));
-        }
-
-        // The binary may also be installed outside the environment.
+        let mut found = None;
         for candidate in spec.candidates {
-            if let Some(path) = worktree.which(candidate.binary) {
-                let args = binary
-                    .as_ref()
-                    .and_then(|binary| binary.arguments.clone())
-                    .unwrap_or_else(|| default_args(candidate));
-                let env: Vec<(String, String)> = binary
-                    .as_ref()
-                    .and_then(|b| b.env.clone())
-                    .map(|env| env.into_iter().collect())
-                    .unwrap_or_default();
-                return Ok(command(path, args, env));
+            let path = pixi::resolve_tool(
+                &env.prefix,
+                candidate.binary,
+                windows,
+                |path| pixi::is_executable(path, windows),
+                &mut checked,
+            );
+            if let Some(path) = path {
+                found = Some((path, candidate));
+                break;
             }
         }
+        let Some((path, candidate)) = found else {
+            return Err(format!(
+                "no language server for `{id}` in the pixi environment `{}` ({}).\n\
+                 Checked: {}\n\
+                 Install one with `{}`, or set `lsp.{id}.binary.path` in your Zed settings.",
+                env.name,
+                env.prefix,
+                checked.join(", "),
+                servers::install_hint(id),
+            ));
+        };
 
-        Err(format!(
-            "no language server for `{id}` found in the pixi environment `{}` ({}).\n\
-             Checked: {}\n\
-             Install one with `{}`, or set `lsp.{id}.binary.path` in your Zed settings.",
-            env.name,
-            env.prefix,
-            checked.join(", "),
-            servers::install_hint(id),
-        ))
+        let args = binary
+            .as_ref()
+            .and_then(|binary| binary.arguments.clone())
+            .unwrap_or_else(|| default_args(candidate));
+        let defaults = pixi::command_env(worktree, &env, windows);
+        let env = pixi::merge_env(defaults, binary.as_ref().and_then(|b| b.env.clone()));
+        Ok(command(path, args, env))
     }
 
     fn language_server_initialization_options(
@@ -127,11 +121,7 @@ fn default_args(candidate: &servers::Candidate) -> Vec<String> {
 }
 
 fn command(command: String, args: Vec<String>, env: Vec<(String, String)>) -> zed::Command {
-    zed::Command {
-        command,
-        args,
-        env,
-    }
+    zed::Command { command, args, env }
 }
 
 zed::register_extension!(PixiExtension);
