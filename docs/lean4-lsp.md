@@ -18,10 +18,11 @@ extension (id `lean4`, server id `lean4-lsp`, version 0.1.0 /
     lsp.lean4-lsp.settings.elan_auto_install or configure
     lsp.lean4-lsp.binary.path.
 
-and what `scripts/zed_pixi_sync.py` writes instead: an `lsp.lean4-lsp` entry
-with `binary.path` at the environment's `lake` and `arguments: ["serve", "--"]`.
-The generator emits it whenever the selected environment contains
-`<prefix>/bin/lake`, so a project that runs `pixi add lean4` gets it.
+and what a Lean project has to write by hand: an `lsp.lean4-lsp` entry with
+`binary.path` at that project's environment `lake` and `arguments: ["serve",
+"--"]`. `scripts/zed_pixi_sync.py` in this repository does not know a
+`lean4-lsp` server and writes no such entry; the generator configures only the
+servers listed in [zed-config.md](zed-config.md).
 
 ## Minimal interim fix
 
@@ -226,21 +227,19 @@ through the resolution order above: the extension looks at
 `lsp.lean4-lsp.binary.path`, the worktree shell `PATH` and elan, never at the
 pixi prefix. `pixi run` only changes `PATH` for the process it starts.
 
-`scripts/zed_pixi_sync.py` now emits the entry above when the selected
-environment contains `<prefix>/bin/lake`; in the Lean project, where
-`pixi add lean4` put the toolchain, that is what makes the server start. That is
-the complete fix for a Lean project: `pixi add lean4`, run the generator in
-that project, reload Zed. The generated files stay machine-specific and are not
-committed by this repository. `lake` then serves with the environment's own
-`lean`; `lean-toolchain` does not override it (see the measured table above), so
-the pixi dependency is what the server runs.
+The generator in this repository is generic: it writes entries only for the
+language servers it names, and `lean4-lsp` is not one of them. A Lean project
+therefore uses the manual entry above, with the `lake` path taken from its own
+pixi environment (`pixi run which lake`). The generated files stay
+machine-specific and are not committed by this repository. `lake` then serves
+with the environment's own `lean`; `lean-toolchain` does not override it (see
+the measured table above), so the pixi dependency is what the server runs.
 
 The rule for any fix is therefore: resolve `lake` against the user's own
 project pixi environment -- the manifest that actually declares `lean4` -- never
-against this repository's environment or Zed's captured shell PATH. The code
-and generator changes are being audited by new threads; this file is background
-on the runtime resolution order and the measured behavior of the conda-forge
-`lean4` binaries.
+against this repository's environment or Zed's captured shell PATH. The
+resolver has to bind the pixi environment to the workspace's own manifest;
+`docs/zed-config.md` describes the same rule for the generated settings.
 
 ## Verification
 
@@ -251,12 +250,12 @@ Scratch project `/tmp/leancheck` with `[dependencies] lean4 = "==4.33.0"`
   `lean --version` printed 4.33.0, `lake --version` printed
   `5.0.0-src+5da8a13 (Lean version 4.33.0)`, and `env -i PATH=/usr/bin:/bin
   lake --version` printed the same, so the binaries need no pixi `PATH`.
-- `python3 scripts/zed_pixi_sync.py` wrote exactly the `lsp.lean4-lsp` entry
-  above (`"arguments": ["serve", "--"]`, no `ELAN_HOME`), and
-  `zed-sync-check` accepted the result.
+- The manual `lsp.lean4-lsp` entry above (`"arguments": ["serve", "--"]`, no
+  `ELAN_HOME`) was written into that project's `.zed/settings.json`; the
+  generator was not used for it.
 - Starting that `lake serve --` with `PATH=/usr/bin:/bin` and sending an LSP
   `initialize` returned `{"serverInfo": {"name": "Lean 4 Server", "version":
-  "0.3.0"}}` with `hoverProvider` and the other capabilities, so the generated
+  "0.3.0"}}` with `hoverProvider` and the other capabilities, so the manual
   entry starts a working server.
 - The wrapper described above, started the same way with `serve --`, also
   answered `initialize` and wrote nothing to stdout besides the LSP frames.

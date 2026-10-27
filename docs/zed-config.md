@@ -7,8 +7,8 @@ instead of by the extension. The exception is an adapter the extension declares
 itself: Zed asks the extension for its command, so `pixi-gdb` and `pixi-lldb`
 come from the extension and need no generated settings.
 
-`scripts/zed_pixi_sync.py` resolves the environment of the project it runs in
-and writes two project-local files:
+`scripts/zed_pixi_sync.py` resolves the environment of the workspace root's own
+`pixi.toml` and writes two project-local files:
 
 - `.zed/settings.json`, pointing Zed's built-in tools at the environment.
 - `.zed/tasks.json`, with one task per pixi task.
@@ -31,10 +31,25 @@ cmd = "python3 scripts/zed_pixi_sync.py"
 cmd = "python3 scripts/zed_pixi_sync.py --check"
 ```
 
-It reads the root `pixi.toml`, asks `pixi info --json --manifest-path` for the
-environment prefix, and uses the `default` environment (or the only one, or the
-one passed with `--environment NAME`). It never looks for the tools on the
-host `PATH`; a tool that is not installed in the environment is not configured.
+It reads the root `pixi.toml`, asks `pixi info --json --manifest-path
+<root>/pixi.toml` for the environment prefix, and uses the `default`
+environment (or the only one, or the one passed with `--environment NAME`).
+
+The manifest is always `<root>/pixi.toml`; there is no option to name another
+one. The generator also checks the answer:
+
+- `pixi info` must report a project, and its `project_info.manifest_path` must
+  resolve to that same file. A `pixi` that answers for another manifest, or
+  `project_info: null` for no project, is an error and nothing is written.
+- `pixi` is run from the manifest's directory with the activation variables
+  (`PIXI_*`, `CONDA_PREFIX`, `VIRTUAL_ENV`) removed, so an ambient or parent
+  pixi project cannot influence the answer.
+
+It never looks for a configured tool on the host `PATH`; a tool that is not
+installed in the environment is not configured. Every generated entry names
+the project root, manifest and environment it was written for, so entries from
+another project or from an older prefix can be recognised and are removed on
+the next write. `--check` reports them instead of accepting them.
 
 ## What is written
 
@@ -48,17 +63,24 @@ For every language server that both Zed ships and the environment installs:
     "binary": {
       "path": "<prefix>/bin/rust-analyzer",
       "ignore_system_version": true,
-      "env": { "PATH": "<prefix>/bin:<rest of PATH>", ... }
+      "env": { "PATH": "<prefix>/bin:<system PATH>", ... }
     }
   }
 }
 ```
 
 `ignore_system_version` stops Zed from using a copy from the host `PATH` before
-the configured binary. `env.PATH` starts with the environment's `bin`, so
+the configured binary. `env.PATH` starts with the environment's own `bin`, so
 programs the server spawns (`python`, `node`, `rustfmt`, ...) come from the
-environment first. The other variables are `VIRTUAL_ENV`, `CONDA_PREFIX`,
-`PIXI_PROJECT_ROOT`, `PIXI_PROJECT_MANIFEST` and `PIXI_ENVIRONMENT_NAME`.
+selected environment first. The rest of that `PATH` is the system part of the
+`PATH` the script ran with: every conda/pixi environment directory, and the
+`bin` of whatever `CONDA_PREFIX`/`VIRTUAL_ENV` was active, is removed. An
+ambient or foreign environment therefore never appears in the generated
+settings, and no configured tool is ever found on that tail.
+
+The other variables are `VIRTUAL_ENV`, `CONDA_PREFIX`, `PIXI_PROJECT_ROOT`,
+`PIXI_PROJECT_MANIFEST` and `PIXI_ENVIRONMENT_NAME`; all of them point at the
+selected environment and manifest.
 
 The script knows these Zed server ids and their environment binaries:
 
@@ -72,17 +94,12 @@ The script knows these Zed server ids and their environment binaries:
 | `gopls` | `gopls` | |
 | `clangd` | `clangd` | |
 | `ruff` | `ruff` | `server` |
-| `lean4-lsp` | `lake` | `serve --` |
 
-`lean4-lsp` is Zed's built-in `lean4` extension server. Its launch recipe is
-`lake serve --`, so the generator points `binary.path` at the environment's
-`lake` (installed by the conda-forge `lean4` package) and repeats those
-arguments. No `ELAN_HOME` is written: with a pixi `lean4` dependency the
-toolchain is in the environment, not in elan. See
-[lean4-lsp.md](lean4-lsp.md) for the resolution order of the extension.
-
-Add the matching pixi dependencies, for example `pixi add rust-analyzer taplo
-basedpyright yaml-language-server`.
+Only these binaries are ever configured, and only from the selected
+environment. This repository declares `rust-analyzer`, `basedpyright`, `taplo`
+and `python`; no other server, toolchain or version pin is built into the
+generator. Add the matching pixi dependencies, for example `pixi add
+rust-analyzer taplo basedpyright yaml-language-server`.
 
 ### Debug adapters
 
@@ -119,7 +136,7 @@ Zed's own adapters are still configured through the generated settings:
 "dap": {
   "CodeLLDB": {
     "binary": "<prefix>/bin/lldb-dap",
-    "env": { "PATH": "<prefix>/bin:<rest of PATH>", ... }
+    "env": { "PATH": "<prefix>/bin:<system PATH>", ... }
   }
 }
 ```
@@ -134,13 +151,14 @@ and inherit its binary and environment.
 ### Formatters
 
 External formatters have no `env` setting. The script only configures a
-formatter when its binary is in the environment and only when the project does
-not already choose one for that language. Prettier is used for the JavaScript
-family; StyLua for Lua. Conda's shims point at the environment interpreter
-absolutely, so they run without extra environment. Most formatting should come
-from the routed language servers (`ruff`, `basedpyright`) instead. Linting is
-only provided by language servers as well: Zed has no separate external-linter
-setting.
+formatter when its binary is in the selected environment and only when the
+project does not already choose one for that language. Prettier is used for the
+JavaScript family; StyLua for Lua. Conda's shims point at the environment
+interpreter absolutely, so they run without extra environment. A generated
+formatter command that points into another environment is removed on the next
+write and reported by `--check`. Most formatting should come from the routed
+language servers (`ruff`, `basedpyright`) instead. Linting is only provided by
+language servers as well: Zed has no separate external-linter setting.
 
 ### Terminals and tasks
 
@@ -148,6 +166,12 @@ setting.
 environment. Every pixi task becomes a Zed task (`pixi: build`, `pixi: check`,
 ...); `pixi run` activates the environment itself, so the tasks only need the
 pixi executable.
+
+When `scripts/zed_pixi_sync.py` exists and the environment installs an
+interpreter, one more task, `pixi: sync Zed config`, runs the generator with
+that environment's own `python`. There is no `python3` from the host `PATH`; if
+the environment has no interpreter the task is omitted and `pixi run zed-sync`
+is the way to regenerate.
 
 ## Alternative: the project shell environment
 
@@ -177,12 +201,28 @@ The script merges into an existing `.zed/settings.json`: unrelated settings,
 other language servers and other tasks are kept. Its own entries are updated in
 place, and a formatter the project already set is not replaced.
 
+Generated entries carry `PIXI_PROJECT_ROOT`, `PIXI_PROJECT_MANIFEST` and
+`PIXI_ENVIRONMENT_NAME` in `binary.env`. On every write the script drops the
+entries that carry those markers but name another project, another environment,
+a path outside the current prefix, or a tool the environment no longer
+provides: a settings file copied from another checkout, or left over after the
+environment moved, converges to this project's environment instead of keeping
+a foreign path. Entries you wrote by hand (no markers) are never removed.
+
 ## `--check`
 
 `zed-sync-check` recomputes the configuration and fails when a managed entry is
 stale, when a task is missing, or when a referenced binary does not exist or is
 not executable. It is meant for CI and for a quick sanity check after editing
 `pixi.toml`.
+
+It also fails when a generated entry (one with the project markers) was written
+for a foreign or stale environment: a different `PIXI_PROJECT_ROOT`,
+`PIXI_PROJECT_MANIFEST` or `PIXI_ENVIRONMENT_NAME`, a binary outside the
+current prefix, or a tool the environment no longer provides. `--check` never silently accepts such an entry: it names the
+field and asks for a regenerating run, which removes or rewrites it. The same
+applies to `pixi info` answering for a different manifest, which fails before
+anything is written.
 
 The extension's own resolver can be cross-checked against it natively:
 
@@ -198,9 +238,12 @@ should receive; a name that only exists on the host `PATH` makes it fail.
 - The extension cannot set the environment of Zed's built-in tools; this script
   is the supported route. The `pixi-gdb` and `pixi-lldb` adapters it declares
   are the exception.
-- The captured `PATH` is the one the script saw at generation time. Regenerate
-  after changing your shell `PATH`.
-- A tool must be installed in the pixi environment. There is deliberately no
-  fallback to the host `PATH`.
+- The system tail of `PATH` is the one the script saw at generation time, with
+  all conda/pixi environment directories removed. Regenerate after changing
+  your system `PATH`.
+- A tool must be installed in the selected pixi environment. There is
+  deliberately no fallback to the host `PATH`.
+- `pixi` itself is the only host command the generator runs; it is the CLI that
+  reports the environment, and `--pixi PATH` can pin it.
 - The `Scripts`-first lookup for Windows is implemented, but only the Linux
   path is covered by the tests.
