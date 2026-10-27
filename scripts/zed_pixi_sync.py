@@ -5,7 +5,8 @@ Zed extensions cannot change the environment of Zed's built-in language
 servers, debug adapters, tasks or formatters, and they cannot write files.
 This script does the routing instead: it resolves the pixi environment of the
 project it is run in, then writes project-local Zed configuration that points
-the (built-in) tools at the binaries in that environment.
+the (built-in) tools at the binaries in that environment. Debug adapters the
+extension declares itself (`pixi-gdb`, `pixi-lldb`) need none of this.
 
     python3 scripts/zed_pixi_sync.py            # write the configuration
     python3 scripts/zed_pixi_sync.py --check    # verify it is current
