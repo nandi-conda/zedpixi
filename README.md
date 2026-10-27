@@ -23,20 +23,24 @@ It exposes the environment to the rest of the extension code:
 - `resolve_tool()`: the absolute path of a tool inside the environment. It is
   strict: the tool must be in the environment, there is no host-`PATH` fallback.
 
+It also declares two debug adapters, `pixi-gdb` and `pixi-lldb`, and starts
+them from the environment (see below).
+
 ## The extension registers no language servers
 
 Earlier versions of this extension declared `pixi-rust`, `pixi-python`,
 `pixi-toml` and other language servers of their own. Those are gone, and
 `extension.toml` has no `[language_servers.*]` section. Zed's built-in language
-servers (`rust-analyzer`, `basedpyright`, `taplo`, ...), debug adapters, tasks
-and formatters are the ones that run.
+servers (`rust-analyzer`, `basedpyright`, `taplo`, ...), tasks and formatters
+are the ones that run.
 
 **Important limitation.** Zed's extension API (including
 `zed_extension_api` 0.7/0.8) has no hook that sets the `PATH` or environment of
-a built-in language server, debug adapter, task or formatter. Only commands that
-an extension itself provides can be given an environment, and
-`Worktree::shell_env` is read-only. "Put the pixi environment on `PATH` for
-Zed's own servers" therefore cannot be done from the extension wasm.
+a built-in language server, task or formatter, or of a debug adapter that
+another extension declares. Only commands that an extension provides itself can
+be given an environment, and `Worktree::shell_env` is read-only. "Put the pixi
+environment on `PATH` for Zed's own servers" therefore cannot be done from the
+extension wasm.
 
 The supported way to run Zed's built-ins inside the pixi environment is project
 configuration: the `lsp`, `dap`, `terminal` and `formatter` sections of
@@ -44,6 +48,34 @@ configuration: the `lsp`, `dap`, `terminal` and `formatter` sections of
 supplies the resolved absolute paths and the environment block that such
 configuration needs. Tasks can also call `pixi run`, which activates the
 environment for the command.
+
+## Debug adapters from the extension
+
+Zed asks an extension for the command of every debug adapter it declares, so
+this extension starts two adapters straight from the pixi environment:
+
+| Adapter | Binary and arguments | Languages |
+| --- | --- | --- |
+| `pixi-gdb` | `gdb -i=dap` | C, C++ |
+| `pixi-lldb` | `lldb-dap` | Rust, C, C++ |
+
+Use the adapter name in the debug configuration:
+
+```json
+{
+  "label": "Debug tests",
+  "adapter": "pixi-lldb",
+  "request": "launch",
+  "program": "${ZED_WORKTREE_ROOT}/target/debug/my-crate"
+}
+```
+
+Both adapters start with `<prefix>/bin` first on `PATH` and never fall back to
+the host `PATH`, so no generated `dap` settings are needed for them. A binary
+path set in the debug settings still wins over the environment copy. Both speak
+DAP over stdio; port-based adapters (`debugpy`, `dlv dap`) stay on the generated
+`dap.<adapter>` settings, because the extension API has no port allocator.
+Install the binaries with `pixi add gdb lldb`.
 
 ## Using the environment in project settings
 
@@ -81,8 +113,9 @@ takes an absolute `path` and an `env` object; values are literal strings, so the
 }
 ```
 
-The same shape applies to debug adapters (`"dap"` with `binary`, `args` and
-`env`) and to formatters and linters that Zed configures with an explicit
+The same shape applies to debug adapters that the extension does not provide,
+such as the port-based `debugpy` and `dlv dap` (`"dap"` with `binary`, `args`
+and `env`), and to formatters and linters that Zed configures with an explicit
 binary path. A task in `.zed/tasks.json` can simply run the tool through pixi:
 
 ```json
@@ -168,6 +201,17 @@ A tool that exists only on the host `PATH` makes the check exit nonzero. With
 no tool arguments it lists the executables in the environment's `bin`
 directory.
 
+Add `--shadow` to prove the no-host-fallback rule. It builds a throwaway
+environment prefix and a host `bin` directory that both contain
+`pixi-shadow-tool`, then checks that the environment copy is resolved and runs
+even with the host `bin` first on `PATH`, and that a tool only on the host does
+not resolve:
+
+```sh
+pixi run env-check --shadow
+# or: cargo run --features native-check --bin pixi-env-check -- --shadow .
+```
+
 ## Installing in Zed
 
 The extension is not published in Zed's registry, so install it as a dev
@@ -201,11 +245,29 @@ Steps:
 4. Point the language servers, debug adapters, tasks and formatters you use at
    that environment, as shown above. `pixi run env-check` prints the values.
 
-One trap when changing `extension.toml`: `process:exec` capabilities match the
-command string exactly. The extension runs `pixi` through the absolute path
-returned by `worktree.which("pixi")`, so `extension.toml` grants `command = "*"`
-for `info --json --manifest-path *`. A checkout that says `command = "pixi"`
-gets that call rejected by Zed at runtime; keep the `*` version.
+### Process capabilities
+
+The extension spawns exactly two kinds of process, and `extension.toml` grants
+only those:
+
+1. `pixi info --json --manifest-path <workspace>/pixi.toml`, to resolve the
+   environment. `pixi` is run through the absolute path that
+   `worktree.which("pixi")` returns, so the capability uses `command = "*"` with
+   the arguments fixed to that one query.
+2. The executable test for a candidate path in the environment:
+   `/bin/sh -c 'test -x "$1"' sh <absolute path>`, and PowerShell's
+   `Test-Path -LiteralPath <absolute path>` on Windows. Absolute `<prefix>/bin`
+   paths are permitted only as the trailing argument of that test.
+
+No blanket `command = "*", args = ["**"]` grant is given or needed. The
+extension never starts an environment binary itself; Zed starts language
+servers, formatters, linters and tasks from project settings and starts the
+declared debug adapters through `get_dap_binary`, and `process:exec` gates
+neither of those paths.
+
+`process:exec` capabilities match the command string exactly. A checkout that
+says `command = "pixi"` gets the `info` call rejected by Zed at runtime; keep
+the `*` version.
 
 ## Building
 
