@@ -124,10 +124,7 @@ project's `pixi info --json` -> `environments_info[].prefix`:
         "env": {
           "PATH": "<prefix>/bin:<inherited PATH>",
           "VIRTUAL_ENV": "<prefix>",
-          "CONDA_PREFIX": "<prefix>",
-          "PIXI_PROJECT_ROOT": "<project root>",
-          "PIXI_PROJECT_MANIFEST": "<project root>/pixi.toml",
-          "PIXI_ENVIRONMENT_NAME": "<environment>"
+          "CONDA_PREFIX": "<prefix>"
         }
       }
     }
@@ -151,13 +148,17 @@ Rules:
   pixi `lake` would override an elan/`lean-toolchain` setup.
 - Derive the prefix from the *selected project's own* `pixi info --json`
   response, never from another manifest. The extension now enforces this
-  (commit 5332d65): `project_info.manifest_path` must equal the workspace
+  (commit cf6909c): `project_info.manifest_path` must equal the workspace
   manifest, so a foreign manifest or prefix -- and hence a foreign
   `lean`/`lake` -- is rejected before use. See
   [env-resolution-audit.md](env-resolution-audit.md).
-- Keep the usual environment block (PATH with the env's `bin` first). It is not
-  strictly required for Lake (it locates `lean` itself), but it keeps programs
-  started by Lake inside the environment. It also matches the other servers.
+- Keep the environment block from the example (PATH with the env's `bin`
+  first). It is not strictly required for Lake (it locates `lean` itself), but
+  it keeps programs started by Lake inside the environment and matches what
+  `pixi run` sets. Do not add `PIXI_PROJECT_ROOT`, `PIXI_PROJECT_MANIFEST` or
+  `PIXI_ENVIRONMENT_NAME` to a hand-written entry: `zed-sync` treats any entry
+  whose env carries `PIXI_PROJECT_ROOT` as generated (`prune_generated()`), so
+  a manual entry with those markers can be pruned or reported as stale.
 - Do **not** invent an `ELAN_HOME`. Nothing in this setup reads it. `ELAN_HOME`
   only matters on the elan route: there `lake` must be `$ELAN_HOME/bin/lake`
   (an elan proxy) and the default is `$HOME/.elan`. Setting `ELAN_HOME` in
