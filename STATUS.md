@@ -1,24 +1,43 @@
 # Zed pixi extension — consolidated status
 
-As of 2026-10-27 13:47 PDT. Source of truth: git refs in `.repos/p_58768d1b`
-and the thread transcripts.
+As of 2026-10-27 13:47 PDT, updated at 14:00 after the main check. Source of
+truth: git refs in `.repos/p_58768d1b` and the thread transcripts.
+
+## Main check: main has the work
+
+**Yes. `origin/main` is `39a44d1` and it contains the extension.** The tracked
+tree has 13 files: `Cargo.toml`, `Cargo.lock`, `extension.toml`, `pixi.toml`,
+`pixi.lock`, `src/lib.rs`, `src/pixi.rs`, `src/servers.rs`,
+`src/bin/pixi_lsp_check.rs`, `README.md`, `STATUS.md`, `.gitattributes`,
+`.gitignore`. No file under `target/` is tracked. For all of those files except
+`STATUS.md`, main's content is byte-identical to `ca055a4`; the report came from
+`b7b2bb7`. The `b7db55e`/`ee55437` line on `thread/t_b13a9378` is **not** on main.
+
+One defect is present on main. `src/pixi.rs` runs pixi from the absolute path
+returned by `worktree.which("pixi")`, but `extension.toml` grants
+`process:exec` for `command = "pixi"`. Zed matches that command exactly, so the
+call is rejected at runtime. `ee55437` fixes it with `command = "*"` and fixed
+`info --json --manifest-path` args; that change is not on main. Running the bare
+name `pixi` (letting the host resolve it) would also fix it. The build and tests
+of `39a44d1` have not been re-run since landing.
 
 ## Current refs (verified with git)
 
 | ref | commit | content |
 |---|---|---|
-| `origin/main` | `c1b21d2` | project skeleton only: `.gitattributes`, `.gitignore`, `pixi.toml` |
+| `origin/main` | `39a44d1` | extension implementation + strict root-manifest refactor + this report |
 | `thread/t_9d1500ac` | `4a5036c` | original extension implementation (+ committed `target/`) |
 | `thread/t_4d07a756` | `4a5036c` | monitor thread, no changes |
 | `thread/t_b92466fa` | `4a5036c` | status thread, no changes |
 | `thread/t_564eba78` | `ca055a4` | `4a5036c` + strict root-manifest env refactor, capabilities, tasks, `.gitignore` |
-| `thread/t_b13a9378` | `b7db55e` | same feature set, rewritten from `c1b21d2` (does not descend from `4a5036c`) |
+| `thread/t_b13a9378` | `ee55437` | same feature set, rewritten from `c1b21d2` (does not descend from `4a5036c`); `ee55437` adds the capability fix main needs |
 | `thread/t_bd59ce08` | `87da5fe` | `4a5036c` + capabilities, pixi tasks, `.zed/tasks.json`, `scripts/zed-pixi.sh`, `/target` ignore + untrack |
 
-**Correction to the earlier brief: `4a5036c` is not on `main` now.** `origin/main`
-was `4a5036c` from 13:31 to 13:37, then reset to `c1b21d2` (visible in
-`git reflog show origin/main`). Main currently has no extension code. `4a5036c`
-lives only on the thread branches above, and `b7db55e` does not contain it.
+**Main history.** `origin/main` was `c1b21d2`, then `4a5036c` from 13:31 to
+13:37, then reset to `c1b21d2`, then `b7b2bb7` at 13:43, then `39a44d1` at 13:52
+(visible in `git reflog show origin/main`). `39a44d1` descends from `4a5036c` and
+carries the `ca055a4` source refactor. `b7db55e` and `ee55437` do not contain
+`4a5036c`; they are the separate rewrite.
 
 ## What works
 
@@ -61,13 +80,14 @@ lives only on the thread branches above, and `b7db55e` does not contain it.
    `wasm32-wasip2` target in its own HOME (verified: `cargo build --release
    --target wasm32-wasip2` succeeds on the `4a5036c` tree in ~41 s). There is no
    Zed binary in the sandbox, so actually loading the dev extension is untested.
-4. **The required refactor is written but not landed or re-verified on this branch.**
-   `ca055a4` (t_564eba78) and `b7db55e` (t_b13a9378) both implement the strict
-   root-manifest design, capabilities and tasks. `ca055a4`'s commit message claims
+4. **The refactor is landed, but unverified and missing one capability fix.**
+   `ca055a4`'s content is on main as `39a44d1`. Its commit message claims
    `cargo test` 7/7, release wasm and native-check, but no build output appears in
-   its transcript, so treat that as unverified. `87da5fe` (t_bd59ce08) adds the
-   capabilities, tasks, helper script and `/target` cleanup but contains no build
-   of the refactored code.
+   its transcript, so treat that as unverified. Main's `extension.toml` grants
+   `command = "pixi"` while the code runs an absolute path, which Zed rejects;
+   `ee55437` has the matching fix. `87da5fe` (t_bd59ce08) adds the capabilities,
+   tasks, helper script and `/target` cleanup but contains no build of the
+   refactored code.
 
 ## Branch inventory
 
@@ -104,12 +124,10 @@ lives only on the thread branches above, and `b7db55e` does not contain it.
 2. **Clear the session-lease conflicts.** Stop the other prime-agent window/build
    or kill the stale holders (`411789`, `412128`, `413013`, `419566`) before
    restarting the failed threads; otherwise they fail again at startup.
-3. **Choose one line to land.** Recommended: `ca055a4` for the source/env
-   refactor, then cherry-pick `87da5fe`'s `.zed/tasks.json`, `scripts/zed-pixi.sh`
-   and the remaining task entries, or rebase one branch on top of the other.
-   Decide explicitly whether to keep the `$PATH` server fallback (ca055a4) or drop
-   it (b7db55e). Rebase onto `origin/main`, which has no extension yet, so the
-   first landing is an add, not a merge.
+3. **Landing is done.** Main has the `ca055a4` line as `39a44d1`. Still open:
+   apply `ee55437`'s `command = "*"` capability fix (or run bare `pixi`), decide
+   whether to keep the `$PATH` server fallback that main has, and optionally bring
+   over `87da5fe`'s `.zed/tasks.json` and `scripts/zed-pixi.sh`.
 4. **Re-verify after the merge** in a thread with rustup:
    `rustup target add wasm32-wasip2`; `pixi install`;
    `cargo test`; `cargo build --release --target wasm32-wasip2`;
