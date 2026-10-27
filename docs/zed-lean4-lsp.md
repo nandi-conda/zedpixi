@@ -192,7 +192,12 @@ re-check the environment on each launch, which is slower than options 1 and 2.
 
 The pixi extension itself cannot fix this. It registers no language servers,
 and Zed's extension API has no hook that sets the environment of a built-in or
-another extension's language server (see the main README).
+another extension's language server (see the main README). Its environment
+resolution (`pixi info --json --manifest-path`) feeds the generated
+`.zed/settings.json`, tasks and the extension's own debug adapters; it cannot
+inject `PATH` into a server that the Lean 4 extension declares. The earlier
+`/pixi-env` assistant command of this extension only printed the resolved
+environment and has been removed.
 
 ## What was verified
 
