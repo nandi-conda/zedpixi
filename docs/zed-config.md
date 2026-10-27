@@ -108,6 +108,19 @@ environment. Every pixi task becomes a Zed task (`pixi: build`, `pixi: check`,
 ...); `pixi run` activates the environment itself, so the tasks only need the
 pixi executable.
 
+## Alternative: the project shell environment
+
+Zed builds a per-project environment from a login shell in the worktree. With
+direnv enabled and a `.envrc` containing `eval "$(pixi shell-hook)"`, that
+environment already has the pixi `bin` directory first on `PATH`, and Zed's
+built-in tools inherit it. That route needs no generated settings, but it
+depends on direnv and on `load_direnv` being enabled in the user's settings.
+
+The generator is for projects that do not use direnv, and it pins each tool to
+an absolute path in the environment. Both can coexist: `lsp.<id>.binary.env` is
+merged over the project shell environment, so the generated `PATH` wins where
+it is set.
+
 ## Machine-specific output
 
 Zed requires absolute paths in project settings, and the pixi prefix lives
