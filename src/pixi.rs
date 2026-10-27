@@ -1,20 +1,28 @@
-//! Locating and describing the pixi environment that belongs to a worktree.
+//! The pixi environment of a worktree.
 //!
-//! The extension uses the project the user opened: the `pixi.toml` at the
-//! worktree root. Zed extensions cannot list directories, so the environment is
-//! resolved by asking the pixi CLI (`pixi info --json --manifest-path`) and
-//! individual binaries are then probed with the platform's file test.
+//! A workspace is pixi-aware when its root contains `pixi.toml`. The
+//! environment is resolved by asking the pixi CLI
+//! (`pixi info --json --manifest-path`) and every executable is then looked up
+//! strictly inside the environment's `bin` directory (or `Scripts` on
+//! Windows). There is no host-`PATH` fallback: a tool that is not in the pixi
+//! environment is not used by the extension.
+//!
+//! Zed's extension API cannot change the environment of the language servers,
+//! debug adapters, tasks or formatters that Zed itself starts. The helpers
+//! here are therefore also exposed for project settings: `command_env` builds
+//! the environment block (the pixi `bin` directory first on `PATH`), and
+//! `resolve_tool` returns the absolute path of a tool inside the environment.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
 use zed_extension_api as zed;
 
-/// The manifest the extension uses: always the worktree root's `pixi.toml`.
+/// The manifest that makes a workspace pixi-aware.
 pub const MANIFEST_FILE: &str = "pixi.toml";
 pub const DEFAULT_ENVIRONMENT: &str = "default";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PixiEnv {
     pub name: String,
     pub prefix: String,
@@ -51,8 +59,8 @@ pub fn resolve(worktree: &zed::Worktree) -> Result<PixiEnv, String> {
 }
 
 fn pixi_info(pixi: &str, manifest_path: &str) -> Result<(String, String), String> {
-    let mut command =
-        zed::process::Command::new(pixi).args(["info", "--json", "--manifest-path", manifest_path]);
+    let mut command = zed::process::Command::new(pixi)
+        .args(["info", "--json", "--manifest-path", manifest_path]);
     let output = command
         .output()
         .map_err(|err| format!("could not run `{pixi} info --json`: {err}"))?;
@@ -121,27 +129,6 @@ pub fn select_environment(value: &Value) -> Result<(String, String), String> {
     Ok((name, prefix.to_string()))
 }
 
-/// Resolve one executable inside the pixi environment.
-///
-/// Only tools that are part of the environment are resolved: there is no host
-/// `PATH` lookup, so Zed never silently runs a binary outside the project.
-/// `checked` receives every path that was tried, for error messages.
-pub fn resolve_tool(
-    prefix: &str,
-    binary: &str,
-    windows: bool,
-    mut exists: impl FnMut(&str) -> bool,
-    checked: &mut Vec<String>,
-) -> Option<String> {
-    for path in candidate_paths(prefix, binary, windows) {
-        if exists(&path) {
-            return Some(path);
-        }
-        checked.push(path);
-    }
-    None
-}
-
 pub fn absolute_path(root: &str, path: &str) -> String {
     if path.starts_with('/') || path.starts_with('\\') || path.get(1..2) == Some(":") {
         path.to_string()
@@ -154,7 +141,17 @@ pub fn is_windows(os: zed::Os) -> bool {
     matches!(os, zed::Os::Windows)
 }
 
-/// Candidate paths for a binary inside the environment prefix.
+/// The environment's executable directory.
+pub fn env_bin_dir(prefix: &str, windows: bool) -> String {
+    let prefix = prefix.trim_end_matches(['/', '\\']);
+    if windows {
+        format!("{prefix}\\Scripts")
+    } else {
+        format!("{prefix}/bin")
+    }
+}
+
+/// Candidate paths for `binary` inside the environment prefix, in order.
 pub fn candidate_paths(prefix: &str, binary: &str, windows: bool) -> Vec<String> {
     let prefix = prefix.trim_end_matches(['/', '\\']);
     if windows {
@@ -171,21 +168,16 @@ pub fn candidate_paths(prefix: &str, binary: &str, windows: bool) -> Vec<String>
     }
 }
 
-pub fn env_bin_dir(prefix: &str, windows: bool) -> String {
-    let prefix = prefix.trim_end_matches(['/', '\\']);
-    if windows {
-        format!("{prefix}\\Scripts")
+/// `bin_dir` first on `PATH`, followed by the inherited value.
+pub fn prepend_path(bin_dir: &str, inherited: &str, windows: bool) -> String {
+    if inherited.is_empty() {
+        bin_dir.to_string()
     } else {
-        format!("{prefix}/bin")
+        let separator = if windows { ';' } else { ':' };
+        format!("{bin_dir}{separator}{inherited}")
     }
 }
 
-/// Whether `path` exists and is executable.
-///
-/// Some language servers (notably `basedpyright-langserver`) start speaking LSP
-/// as soon as they are run and accept neither `--version` nor `--help`, so the
-/// candidate paths are checked with the platform's file test instead of by
-/// running them.
 pub fn is_executable(path: &str, windows: bool) -> bool {
     let mut command = if windows {
         let escaped = path.replace('\'', "''");
@@ -203,27 +195,52 @@ pub fn is_executable(path: &str, windows: bool) -> bool {
     matches!(command.output(), Ok(output) if output.status == Some(0))
 }
 
-/// Environment for a language server started from the pixi environment.
+/// Resolve `binary` strictly inside the pixi environment.
 ///
-/// The environment's `bin` directory comes first on `PATH`, so tools that the
-/// server spawns (`python`, `node`, ...) are the ones from the pixi
-/// environment rather than whatever happens to be on the user's `PATH`.
-pub fn command_env(
-    worktree: &zed::Worktree,
-    env: &PixiEnv,
+/// Unlike a shell lookup, this never consults the host `PATH`: either the
+/// binary exists in `<prefix>/bin` (or `<prefix>/Scripts`) or this is an error.
+pub fn resolve_tool(prefix: &str, binary: &str, windows: bool) -> Result<String, String> {
+    resolve_tool_with(prefix, binary, windows, |path| is_executable(path, windows))
+}
+
+/// `resolve_tool`, with the existence test supplied by the caller.
+///
+/// Native tools pass a `std` based test; the extension passes `is_executable`.
+pub fn resolve_tool_with(
+    prefix: &str,
+    binary: &str,
     windows: bool,
-) -> Vec<(String, String)> {
+    mut exists: impl FnMut(&str) -> bool,
+) -> Result<String, String> {
+    let mut checked = Vec::new();
+    for path in candidate_paths(prefix, binary, windows) {
+        if exists(&path) {
+            return Ok(path);
+        }
+        checked.push(path);
+    }
+    Err(format!(
+        "`{binary}` is not in the pixi environment (checked {})",
+        checked.join(", ")
+    ))
+}
+
+/// Environment for a process that should run inside the pixi environment.
+///
+/// The environment's executable directory comes first on `PATH`, so tools that
+/// a server or task spawns (`python`, `node`, `cargo`, ...) are the ones from
+/// the pixi environment. The rest of the inherited `PATH` follows so that
+/// basic system tools remain available; the extension itself never uses it to
+/// find a project tool.
+pub fn command_env(worktree: &zed::Worktree, env: &PixiEnv, windows: bool) -> Vec<(String, String)> {
     let bin_dir = env_bin_dir(&env.prefix, windows);
-    let separator = if windows { ';' } else { ':' };
     let inherited_path = shell_env(worktree, "PATH");
-    let path = if inherited_path.is_empty() {
-        bin_dir
-    } else {
-        format!("{bin_dir}{separator}{inherited_path}")
-    };
 
     vec![
-        ("PATH".to_string(), path),
+        (
+            "PATH".to_string(),
+            prepend_path(&bin_dir, &inherited_path, windows),
+        ),
         ("VIRTUAL_ENV".to_string(), env.prefix.clone()),
         ("CONDA_PREFIX".to_string(), env.prefix.clone()),
         ("PIXI_PROJECT_ROOT".to_string(), env.project_root.clone()),
@@ -308,9 +325,10 @@ mod tests {
 
     #[test]
     fn reports_an_environment_without_prefix() {
-        let value: Value =
-            serde_json::from_str(r#"{"environments_info": [{"name": "default", "prefix": ""}]}"#)
-                .unwrap();
+        let value: Value = serde_json::from_str(
+            r#"{"environments_info": [{"name": "default", "prefix": ""}]}"#,
+        )
+        .unwrap();
         let error = select_environment(&value).unwrap_err();
         assert!(error.contains("pixi install"), "{error}");
     }
@@ -336,50 +354,41 @@ mod tests {
     }
 
     #[test]
-    fn finds_the_binary_inside_the_environment() {
-        let mut checked = Vec::new();
-        let found = resolve_tool(
-            "/env",
-            "taplo",
-            false,
-            |path| path == "/env/bin/taplo",
-            &mut checked,
+    fn puts_the_environment_first_on_path() {
+        assert_eq!(
+            prepend_path("/env/bin", "/usr/bin:/bin", false),
+            "/env/bin:/usr/bin:/bin"
         );
-        assert_eq!(found.as_deref(), Some("/env/bin/taplo"));
-        assert!(checked.is_empty());
+        assert_eq!(prepend_path("/env/bin", "", false), "/env/bin");
+        assert_eq!(
+            prepend_path(r"C:\env\Scripts", r"C:\Windows", true),
+            r"C:\env\Scripts;C:\Windows"
+        );
     }
 
     #[test]
-    fn reports_a_binary_that_is_not_in_the_environment() {
-        let mut checked = Vec::new();
-        let found = resolve_tool("/env", "taplo", false, |_| false, &mut checked);
-        assert!(found.is_none(), "no host PATH lookup is attempted");
-        assert_eq!(checked, vec!["/env/bin/taplo".to_string()]);
+    fn resolves_a_tool_inside_the_environment() {
+        let found = resolve_tool_with("/env", "taplo", false, |path| path == "/env/bin/taplo")
+            .unwrap();
+        assert_eq!(found, "/env/bin/taplo");
     }
 
     #[test]
-    fn finds_windows_binaries_in_scripts_and_bin() {
-        let mut checked = Vec::new();
-        let found = resolve_tool(
-            r"C:\env",
-            "taplo",
-            true,
-            |path| path == r"C:\env\Scripts\taplo.exe",
-            &mut checked,
-        );
-        assert_eq!(found.as_deref(), Some(r"C:\env\Scripts\taplo.exe"));
-        assert!(checked.is_empty());
+    fn does_not_fall_back_to_the_host_path() {
+        // The host has the tool, the environment does not: resolution fails.
+        let error = resolve_tool_with("/env", "taplo", false, |path| path == "/usr/bin/taplo")
+            .unwrap_err();
+        assert!(error.contains("/env/bin/taplo"), "{error}");
+        assert!(error.contains("not in the pixi environment"), "{error}");
+    }
 
-        let mut checked = Vec::new();
-        let found = resolve_tool(
-            r"C:\env",
-            "taplo",
-            true,
-            |path| path == r"C:\env\bin\taplo",
-            &mut checked,
-        );
-        assert_eq!(found.as_deref(), Some(r"C:\env\bin\taplo"));
-        assert_eq!(checked.len(), 7);
+    #[test]
+    fn resolves_windows_scripts_and_bin() {
+        let found = resolve_tool_with(r"C:\env", "taplo", true, |path| {
+            path == r"C:\env\Scripts\taplo.exe"
+        })
+        .unwrap();
+        assert_eq!(found, r"C:\env\Scripts\taplo.exe");
     }
 
     #[test]

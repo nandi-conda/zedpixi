@@ -12,8 +12,8 @@ cmd = "cargo check --target wasm32-wasip2"
 [tasks.test]
 cmd = "cargo test"
 
-[tasks.native-check]
-cmd = "cargo run --features native-check --bin pixi-lsp-check -- ."
+[tasks.env-check]
+cmd = "cargo run --features native-check --bin pixi-env-check -- ."
 
 [dependencies]
 rust-analyzer = ">=2026.8.24,<2027"

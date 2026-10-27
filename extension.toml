@@ -1,50 +1,20 @@
 id = "pixi"
 name = "Pixi"
-description = "Runs language servers from your project's pixi environment."
-version = "0.1.0"
+description = "Makes Zed use your project's pixi environment for its own language servers, debug adapters, tasks and formatters."
+version = "0.2.0"
 schema_version = 1
 authors = ["Pixi extension contributors"]
 
-# Every server is opt-in so it never competes with a built-in server or with a
-# server from another extension. Enable one per language, see README.md.
-[language_servers.pixi-rust]
-name = "Pixi Rust Analyzer"
-languages = ["Rust"]
-opt_in_languages = ["Rust"]
+# This extension intentionally registers no language servers, context servers
+# or slash commands. Zed's built-in language servers, debug adapters, tasks and
+# formatters keep working as usual; project settings point them at the pixi
+# environment, and this extension provides the resolved environment and its
+# `bin` directory (see README.md).
 
-[language_servers.pixi-python]
-name = "Pixi Python"
-languages = ["Python"]
-opt_in_languages = ["Python"]
-
-[language_servers.pixi-toml]
-name = "Pixi TOML"
-languages = ["TOML"]
-opt_in_languages = ["TOML"]
-
-[language_servers.pixi-yaml]
-name = "Pixi YAML"
-languages = ["YAML"]
-opt_in_languages = ["YAML"]
-
-[language_servers.pixi-typescript]
-name = "Pixi TypeScript"
-languages = ["TypeScript", "JavaScript"]
-opt_in_languages = ["TypeScript", "JavaScript"]
-
-[language_servers.pixi-go]
-name = "Pixi Go"
-languages = ["Go"]
-opt_in_languages = ["Go"]
-
-[language_servers.pixi-cpp]
-name = "Pixi C/C++"
-languages = ["C", "C++"]
-opt_in_languages = ["C", "C++"]
-
-# Zed only lets an extension run commands it declares here. `pixi info` reads
-# the environment prefix from the project manifest; `/bin/sh` and `powershell`
-# perform the executable check on each candidate server binary.
+# Zed only lets an extension run commands it declares here. The extension runs
+# `pixi info --json --manifest-path` to resolve the project environment, and
+# uses the shell only to test whether a path inside the environment is
+# executable.
 #
 # The command is `*` because pixi is resolved through the worktree's PATH
 # (`worktree.which("pixi")`) and is therefore spawned by its absolute path,

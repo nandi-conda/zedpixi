@@ -1,5 +1,33 @@
 # Zed pixi extension — consolidated status
 
+## 2026-10-27: direction change — no custom language servers
+
+The extension no longer registers any language server (or context server or
+slash command). `src/servers.rs` and all `[language_servers.*]` entries are
+gone; `src/lib.rs` is a minimal `zed::Extension` and `src/pixi.rs` holds the
+strict environment surface (`resolve`, `PixiEnv`, `select_environment`,
+`candidate_paths`, `env_bin_dir`, `is_executable`, `command_env`, `merge_env`,
+`resolve_tool`/`resolve_tool_with`, with no host-`PATH` fallback). The native
+`pixi-lsp-check` binary is replaced by `pixi-env-check` (`pixi run env-check`),
+which prints the resolved environment and `PATH` and fails when a requested
+tool is not in the environment.
+
+Why: `zed_extension_api` 0.7 exposes no hook to set `PATH` or the environment of
+Zed's built-in language servers, debug adapters, tasks or formatters. The
+workable route is project configuration (`.zed/settings.json` `lsp.<id>.binary`
+with `path`/`env`, `dap`, formatter and linter paths, `.zed/tasks.json` with
+`pixi run`). A separate thread owns a generator for those files; this thread
+owns `src/*`, `extension.toml`, `pixi.toml` and `README.md`.
+
+Verified in this thread: `cargo test` 11/11, `cargo build --release --target
+wasm32-wasip2` OK (215 KB wasm), `pixi run env-check` resolves rust-analyzer,
+basedpyright-langserver and taplo from the project environment, prints `python`
+as shadowing the host copy, and exits nonzero for a host-only tool.
+
+The sections below describe the earlier custom-language-server design. They are
+kept for history; the code and `README.md` now follow the section above.
+
+
 As of 2026-10-27 13:47 PDT, updated after the main check and the capability fix.
 Source of truth: git refs in `.repos/p_58768d1b` and the thread transcripts.
 
