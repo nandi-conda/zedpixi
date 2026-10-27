@@ -1,6 +1,17 @@
 # Zed pixi extension — consolidated status
 
-## 2026-10-27: Lean 4 language server entry in the generator
+## 2026-10-27: Lean 4 language server entry in the generator (superseded)
+
+The generated `lean4-lsp` entry and its version pin are gone
+(removed in `0c9065b`, "Generate Zed config only from the workspace root's own
+pixi env"). `scripts/zed_pixi_sync.py` configures only the servers listed in
+[`docs/zed-config.md`](docs/zed-config.md); there is no `lean4` entry and no
+version pin. The Lean measurements below came from a throwaway Lean project,
+not from this repository's environment. The supported route for a Lean project
+is the manual `lsp.lean4-lsp.binary.path = <project env>/bin/lake` recipe with
+`arguments: ["serve", "--"]` in [`docs/lean4-lsp.md`](docs/lean4-lsp.md).
+
+The rest of this section is kept for history:
 
 This repository declares no `lean4` dependency on any branch (only
 `rust-analyzer`, `basedpyright`, `taplo` and `python`), so its own environment
