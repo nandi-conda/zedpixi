@@ -154,10 +154,18 @@ pixi run env-check rust-analyzer basedpyright-langserver taplo
 It uses the same environment selection and prints the `PATH` Zed processes
 should receive; a name that only exists on the host `PATH` makes it fail.
 
+## Checking the environment from Zed
+
+The extension also provides the `/pixi-env` slash command. It prints the
+resolved environment, its `bin` directory and the `PATH` Zed processes receive,
+and with arguments it checks that those tools resolve inside the environment
+(no host fallback). It is informational; writing the project settings is still
+this script's job.
+
 ## Known limits
 
-- The extension itself still cannot set the environment of Zed's built-in
-  tools; this script is the supported route.
+- The extension itself cannot set the environment of Zed's built-in tools; this
+  script is the supported route.
 - The captured `PATH` is the one the script saw at generation time. Regenerate
   after changing your shell `PATH`.
 - A tool must be installed in the pixi environment. There is deliberately no
