@@ -47,6 +47,8 @@ environment for the command.
 
 ## Using the environment in project settings
 
+To generate these entries from the project environment, run `pixi run zed-sync` (`--check` validates); see [docs/zed-config.md](docs/zed-config.md).
+
 Resolve the environment and get a tool path:
 
 ```rust
