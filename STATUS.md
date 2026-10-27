@@ -2,9 +2,9 @@
 
 ## 2026-10-27: Lean 4 language server entry in the generator (superseded)
 
-The generated `lean4-lsp` entry and its version pin are gone
-(removed in `0c9065b`, "Generate Zed config only from the workspace root's own
-pixi env"). `scripts/zed_pixi_sync.py` configures only the servers listed in
+The generated `lean4-lsp` entry and its version pin are gone (removed by
+`92bec7f`, "Generate Zed config only from the workspace root's own pixi env",
+on `main`). `scripts/zed_pixi_sync.py` configures only the servers listed in
 [`docs/zed-config.md`](docs/zed-config.md); there is no `lean4` entry and no
 version pin. The Lean measurements below came from a throwaway Lean project,
 not from this repository's environment. The supported route for a Lean project
