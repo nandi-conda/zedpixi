@@ -17,15 +17,24 @@ One defect was present on main. `src/pixi.rs` runs pixi from the absolute path
 returned by `worktree.which("pixi")`, but `extension.toml` granted
 `process:exec` for `command = "pixi"`. Zed's `ProcessExecCapability::allows`
 compares the command exactly (or `*`), so the call was rejected at runtime.
-`ee55437` proposed the fix, and t_cb5730e5 landed it as `e64dfa7` on
+`ee55437` proposed the fix, and t_cb5730e5 landed it on
 `thread/t_cb5730e5`: `command = "*"` with args unchanged. That commit is not on
 main yet; it lands with that thread's branch. Running the bare name `pixi`
 (letting the host resolve it) would also have fixed it.
 
 Build verification, by t_cb5730e5 in its sandbox with rustup 1.99.1 and
 `wasm32-wasip2`, on the `39a44d1` tree: `cargo test` 7/7 passed, `cargo build
---release --target wasm32-wasip2` produced a 7.9 MB wasm, and native discovery
-found rust-analyzer, basedpyright-langserver and taplo in the pixi environment.
+--release --target wasm32-wasip2` produced a 344 KB release wasm, and native
+discovery found rust-analyzer, basedpyright-langserver and taplo in the pixi
+environment. `pixi run test` also passes with the rustup toolchain on `PATH`.
+
+## The public repository
+
+`nandi-conda/zedpixi` on GitHub was created at 20:34 UTC and was empty when this
+thread started: no commits, no README, no license. There was no existing
+implementation to reuse, so the extension here is written from scratch. The
+repository's `main` now mirrors the project's `origin/main`; it does not have
+the capability fix until this branch lands.
 
 ## Current refs (verified with git)
 
@@ -37,7 +46,7 @@ found rust-analyzer, basedpyright-langserver and taplo in the pixi environment.
 | `thread/t_b92466fa` | `4a5036c` | status thread, no changes |
 | `thread/t_564eba78` | `ca055a4` | `4a5036c` + strict root-manifest env refactor, capabilities, tasks, `.gitignore` |
 | `thread/t_b13a9378` | `ee55437` | same feature set, rewritten from `c1b21d2` (does not descend from `4a5036c`); first carried the capability fix |
-| `thread/t_cb5730e5` | `e64dfa7` | `39a44d1` + the capability fix (`command = "*"`) |
+| `thread/t_cb5730e5` | `665f153` | `f34fa18` + the capability fix (`command = "*"`) |
 | `thread/t_bd59ce08` | `87da5fe` | `4a5036c` + capabilities, pixi tasks, `.zed/tasks.json`, `scripts/zed-pixi.sh`, `/target` ignore + untrack |
 
 **Main history.** `origin/main` was `c1b21d2`, then `4a5036c` from 13:31 to
