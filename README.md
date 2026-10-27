@@ -10,9 +10,10 @@ project's `pixi.toml`:
 pixi add rust-analyzer taplo basedpyright
 ```
 
-The extension finds the environment with `pixi info --json` (so detached pixi
-environments work too), picks the first matching server binary that runs, and
-starts it with the environment's `bin` directory first on `PATH`.
+The extension uses the project the workspace opens: the `pixi.toml` at the
+workspace root. It asks `pixi info --json --manifest-path` for that manifest,
+picks the first matching server binary that exists, and starts it with the
+environment's `bin` directory first on `PATH`.
 
 ## Supported servers
 
@@ -43,24 +44,28 @@ want, in your Zed settings:
 Listing only the pixi server replaces the default server for that language. Add
 `"..."` to the list if you want to keep the default server as well.
 
-## Choosing the environment
+## How the environment is found
 
-By default the extension uses the `default` pixi environment of the worktree
-root (`pixi.toml`). Put a `.zed/pixi.json` file in the project to change that:
+The extension always uses `<workspace root>/pixi.toml`. There is no separate
+configuration file: open the pixi project directory in Zed.
 
-```json
-{
-  "manifest_path": "python/pixi.toml",
-  "environment": "test"
-}
+From that manifest it runs:
+
+```sh
+pixi info --json --manifest-path <workspace root>/pixi.toml
 ```
 
-- `manifest_path` is relative to the worktree root (an absolute path also works).
-- `environment` is a pixi environment name; omit it for `default`.
+and reads the environment prefix from `environments_info`. Detached
+environments therefore work: the prefix is wherever pixi put the environment,
+not necessarily `<project>/.pixi/envs`.
 
-The extension reads the environment prefix from `pixi info --json`. If the
-`pixi` CLI is not on `PATH`, it falls back to `.pixi/envs/<environment>`, which
-only exists for projects that keep environments inside the project.
+The `default` environment is used when it exists. A project with exactly one
+environment uses that one. Otherwise the extension reports an error listing the
+available environment names.
+
+If `pixi` is not on `PATH`, the extension reports that and stops; it never
+guesses a `.pixi/envs` path. If `<workspace root>/pixi.toml` is missing, it says
+so and asks you to open the project directory itself.
 
 ## Overriding a server binary
 
@@ -124,19 +129,23 @@ with the `wasm32-wasip2` target) is needed.
 ## Tests
 
 ```sh
-pixi run test           # unit tests for config and environment parsing
+pixi run test           # unit tests for environment selection and path handling
 pixi run check
 ```
 
-The unit tests cover the parts that do not need the Zed host: `.zed/pixi.json`
-parsing, `pixi info --json` environment selection, binary path construction, and
-environment merging.
+The unit tests cover the parts that do not need the Zed host: `pixi info --json`
+environment selection, binary path construction, and environment merging.
+
+With a pixi project installed, `pixi run native-check` runs the same discovery
+as the extension natively and prints the environment prefix and each server it
+finds or misses.
 
 ## Notes and limitations
 
-- Zed extensions cannot list directories. The extension therefore probes each
-  candidate path by running it with `--version` instead of enumerating
-  `<prefix>/bin`.
+- Zed extensions cannot list directories. The extension therefore checks each
+  candidate path with the platform's executable test (`/bin/sh -c 'test -x'`, or
+  `Test-Path` on Windows) instead of enumerating `<prefix>/bin`. Some servers,
+  such as `basedpyright-langserver`, do not survive a `--version` probe.
 - Only the servers listed in `src/servers.rs` are provided. Add a row there and
   a `[language_servers.*]` entry in `extension.toml` to support another server.
 - The extension does not download or install language servers. Install them with

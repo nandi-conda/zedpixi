@@ -1,8 +1,9 @@
 //! Locating and describing the pixi environment that belongs to a worktree.
 //!
-//! Zed extensions cannot list directories, so the environment is resolved by
-//! asking the pixi CLI (`pixi info --json`) and individual binaries are then
-//! probed by running them with `--version`.
+//! The extension uses the project the user opened: the `pixi.toml` at the
+//! worktree root. Zed extensions cannot list directories, so the environment is
+//! resolved by asking the pixi CLI (`pixi info --json --manifest-path`) and
+//! individual binaries are then probed with the platform's file test.
 
 use std::collections::HashMap;
 
@@ -11,25 +12,9 @@ use zed_extension_api as zed;
 
 use crate::servers::Candidate;
 
-/// Optional per-project configuration, relative to the worktree root.
-pub const CONFIG_FILE: &str = ".zed/pixi.json";
-pub const DEFAULT_MANIFEST: &str = "pixi.toml";
+/// The manifest the extension uses: always the worktree root's `pixi.toml`.
+pub const MANIFEST_FILE: &str = "pixi.toml";
 pub const DEFAULT_ENVIRONMENT: &str = "default";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Config {
-    pub manifest_path: String,
-    pub environment: Option<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            manifest_path: DEFAULT_MANIFEST.to_string(),
-            environment: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct PixiEnv {
@@ -37,81 +22,37 @@ pub struct PixiEnv {
     pub prefix: String,
     pub project_root: String,
     pub manifest_path: String,
-    /// Set when the environment was guessed without the pixi CLI.
-    pub note: Option<String>,
 }
 
-pub fn read_config(worktree: &zed::Worktree) -> Result<Config, String> {
-    match worktree.read_text_file(CONFIG_FILE) {
-        Ok(text) => parse_config(&text),
-        Err(_) => Ok(Config::default()),
-    }
-}
-
-pub fn parse_config(text: &str) -> Result<Config, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|err| format!("{CONFIG_FILE} is not valid JSON: {err}"))?;
-    let object = value
-        .as_object()
-        .ok_or_else(|| format!("{CONFIG_FILE} must contain a JSON object"))?;
-
-    let manifest_path = match object.get("manifest_path") {
-        None => DEFAULT_MANIFEST.to_string(),
-        Some(Value::String(path)) if !path.trim().is_empty() => path.clone(),
-        Some(_) => {
-            return Err(format!(
-                "{CONFIG_FILE}: `manifest_path` must be a non-empty string"
-            ))
-        }
-    };
-
-    let environment = match object.get("environment") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(name)) if !name.trim().is_empty() => Some(name.clone()),
-        Some(_) => {
-            return Err(format!(
-                "{CONFIG_FILE}: `environment` must be a string or null"
-            ))
-        }
-    };
-
-    Ok(Config {
-        manifest_path,
-        environment,
-    })
-}
-
-/// Resolve the pixi environment for a worktree.
-pub fn resolve(worktree: &zed::Worktree, config: &Config) -> Result<PixiEnv, String> {
+/// Resolve the pixi environment described by the worktree root's `pixi.toml`.
+pub fn resolve(worktree: &zed::Worktree) -> Result<PixiEnv, String> {
     let project_root = worktree.root_path();
-    let manifest_path = absolute_path(&project_root, &config.manifest_path);
-    let requested = config
-        .environment
-        .as_deref()
-        .unwrap_or(DEFAULT_ENVIRONMENT);
+    let manifest_path = absolute_path(&project_root, MANIFEST_FILE);
 
-    let Some(pixi) = worktree.which("pixi") else {
-        let prefix = fallback_prefix(&manifest_path, requested);
-        return Ok(PixiEnv {
-            name: requested.to_string(),
-            prefix,
-            project_root,
-            manifest_path,
-            note: Some("pixi was not found on PATH; assuming .pixi/envs".to_string()),
-        });
-    };
+    worktree.read_text_file(MANIFEST_FILE).map_err(|_| {
+        format!(
+            "no {MANIFEST_FILE} at the workspace root ({manifest_path}). \
+             The pixi extension uses the project the workspace opens; add \
+             {MANIFEST_FILE} there, or open the project directory itself."
+        )
+    })?;
 
-    let (name, prefix) = pixi_info(&pixi, &manifest_path, requested)?;
+    let pixi = worktree.which("pixi").ok_or_else(|| {
+        "pixi was not found on PATH. Install pixi and make sure the `pixi` \
+         command is available to Zed."
+            .to_string()
+    })?;
+
+    let (name, prefix) = pixi_info(&pixi, &manifest_path)?;
     Ok(PixiEnv {
         name,
         prefix,
         project_root,
         manifest_path,
-        note: None,
     })
 }
 
-fn pixi_info(pixi: &str, manifest_path: &str, requested: &str) -> Result<(String, String), String> {
+fn pixi_info(pixi: &str, manifest_path: &str) -> Result<(String, String), String> {
     let mut command = zed::process::Command::new(pixi)
         .args(["info", "--json", "--manifest-path", manifest_path]);
     let output = command
@@ -121,7 +62,8 @@ fn pixi_info(pixi: &str, manifest_path: &str, requested: &str) -> Result<(String
     if output.status != Some(0) {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "`{pixi} info --json` failed (exit status {:?}): {}",
+            "`{pixi} info --json --manifest-path {manifest_path}` failed \
+             (exit status {:?}): {}",
             output.status,
             stderr.trim()
         ));
@@ -130,11 +72,15 @@ fn pixi_info(pixi: &str, manifest_path: &str, requested: &str) -> Result<(String
     let stdout = String::from_utf8_lossy(&output.stdout);
     let value: Value = serde_json::from_str(&stdout)
         .map_err(|err| format!("could not parse `pixi info --json` output: {err}"))?;
-    select_environment(&value, requested)
+    select_environment(&value)
 }
 
-/// Pick the requested environment out of `pixi info --json` output.
-pub fn select_environment(value: &Value, requested: &str) -> Result<(String, String), String> {
+/// Pick the environment out of `pixi info --json` output.
+///
+/// The `default` environment is used when the project has one. A project with
+/// exactly one environment uses that one; anything else is an error listing the
+/// available names.
+pub fn select_environment(value: &Value) -> Result<(String, String), String> {
     let environments = value
         .get("environments_info")
         .and_then(Value::as_array)
@@ -147,9 +93,9 @@ pub fn select_environment(value: &Value, requested: &str) -> Result<(String, Str
 
     let selected = environments
         .iter()
-        .find(|env| env.get("name").and_then(Value::as_str) == Some(requested))
+        .find(|env| env.get("name").and_then(Value::as_str) == Some(DEFAULT_ENVIRONMENT))
         .or_else(|| {
-            if requested == DEFAULT_ENVIRONMENT && environments.len() == 1 {
+            if environments.len() == 1 {
                 environments.first()
             } else {
                 None
@@ -157,7 +103,8 @@ pub fn select_environment(value: &Value, requested: &str) -> Result<(String, Str
         })
         .ok_or_else(|| {
             format!(
-                "pixi environment `{requested}` not found; available environments: {}",
+                "this project has no `{DEFAULT_ENVIRONMENT}` pixi environment; \
+                 available environments: {}",
                 names.join(", ")
             )
         })?;
@@ -165,7 +112,7 @@ pub fn select_environment(value: &Value, requested: &str) -> Result<(String, Str
     let name = selected
         .get("name")
         .and_then(Value::as_str)
-        .unwrap_or(requested)
+        .unwrap_or(DEFAULT_ENVIRONMENT)
         .to_string();
     let prefix = selected
         .get("prefix")
@@ -203,14 +150,6 @@ pub fn absolute_path(root: &str, path: &str) -> String {
     } else {
         format!("{}/{}", root.trim_end_matches(['/', '\\']), path)
     }
-}
-
-fn fallback_prefix(manifest_path: &str, environment: &str) -> String {
-    let manifest_dir = manifest_path
-        .rsplit_once(['/', '\\'])
-        .map(|(dir, _)| dir)
-        .unwrap_or(".");
-    format!("{manifest_dir}/.pixi/envs/{environment}")
 }
 
 pub fn is_windows(os: zed::Os) -> bool {
@@ -326,29 +265,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_defaults_from_empty_object() {
-        assert_eq!(parse_config("{}").unwrap(), Config::default());
-    }
-
-    #[test]
-    fn parses_manifest_and_environment() {
-        let config = parse_config(
-            r#"{"manifest_path": "tools/py/pixi.toml", "environment": "test"}"#,
-        )
-        .unwrap();
-        assert_eq!(config.manifest_path, "tools/py/pixi.toml");
-        assert_eq!(config.environment.as_deref(), Some("test"));
-    }
-
-    #[test]
-    fn rejects_bad_config_types() {
-        assert!(parse_config(r#"{"environment": 3}"#).is_err());
-        assert!(parse_config(r#"{"manifest_path": ""}"#).is_err());
-        assert!(parse_config("[]").is_err());
-    }
-
-    #[test]
-    fn selects_requested_environment() {
+    fn selects_the_default_environment() {
         let value: Value = serde_json::from_str(
             r#"{"environments_info": [
                 {"name": "default", "prefix": "/p/.pixi/envs/default"},
@@ -357,40 +274,50 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            select_environment(&value, "test").unwrap(),
-            ("test".to_string(), "/p/.pixi/envs/test".to_string())
-        );
-        assert_eq!(
-            select_environment(&value, "default").unwrap(),
+            select_environment(&value).unwrap(),
             ("default".to_string(), "/p/.pixi/envs/default".to_string())
         );
     }
 
     #[test]
-    fn falls_back_to_the_only_environment() {
+    fn uses_the_only_environment() {
         let value: Value = serde_json::from_str(
             r#"{"environments_info": [{"name": "dev", "prefix": "/p/.pixi/envs/dev"}]}"#,
         )
         .unwrap();
         assert_eq!(
-            select_environment(&value, "default").unwrap(),
+            select_environment(&value).unwrap(),
             ("dev".to_string(), "/p/.pixi/envs/dev".to_string())
         );
     }
 
     #[test]
-    fn reports_missing_environment() {
-        let value: Value =
-            serde_json::from_str(r#"{"environments_info": [{"name": "default", "prefix": "/x"}]}"#)
-                .unwrap();
-        let error = select_environment(&value, "nope").unwrap_err();
-        assert!(error.contains("default"), "{error}");
+    fn reports_a_missing_default_environment() {
+        let value: Value = serde_json::from_str(
+            r#"{"environments_info": [
+                {"name": "test", "prefix": "/p/envs/test"},
+                {"name": "docs", "prefix": "/p/envs/docs"}
+            ]}"#,
+        )
+        .unwrap();
+        let error = select_environment(&value).unwrap_err();
+        assert!(error.contains("test, docs"), "{error}");
+    }
+
+    #[test]
+    fn reports_an_environment_without_prefix() {
+        let value: Value = serde_json::from_str(
+            r#"{"environments_info": [{"name": "default", "prefix": ""}]}"#,
+        )
+        .unwrap();
+        let error = select_environment(&value).unwrap_err();
+        assert!(error.contains("pixi install"), "{error}");
     }
 
     #[test]
     fn makes_absolute_paths() {
         assert_eq!(absolute_path("/repo", "pixi.toml"), "/repo/pixi.toml");
-        assert_eq!(absolute_path("/repo/", "sub/pixi.toml"), "/repo/sub/pixi.toml");
+        assert_eq!(absolute_path("/repo/", "pixi.toml"), "/repo/pixi.toml");
         assert_eq!(absolute_path("/repo", "/abs/pixi.toml"), "/abs/pixi.toml");
     }
 

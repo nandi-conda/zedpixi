@@ -3,7 +3,17 @@ name = "zed pixi extension"
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64"]
 
-[tasks]
+[tasks.build]
+cmd = "cargo build --release --target wasm32-wasip2"
+
+[tasks.check]
+cmd = "cargo check --target wasm32-wasip2"
+
+[tasks.test]
+cmd = "cargo test"
+
+[tasks.native-check]
+cmd = "cargo run --features native-check --bin pixi-lsp-check -- ."
 
 [dependencies]
 rust-analyzer = ">=2026.8.24,<2027"

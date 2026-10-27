@@ -41,3 +41,21 @@ opt_in_languages = ["Go"]
 name = "Pixi C/C++"
 languages = ["C", "C++"]
 opt_in_languages = ["C", "C++"]
+
+# Zed only lets an extension run commands it declares here. `pixi info` reads
+# the environment prefix from the project manifest; `/bin/sh` and `powershell`
+# perform the executable check on each candidate server binary.
+[[capabilities]]
+kind = "process:exec"
+command = "pixi"
+args = ["info", "--json", "--manifest-path", "*"]
+
+[[capabilities]]
+kind = "process:exec"
+command = "/bin/sh"
+args = ["-c", "**"]
+
+[[capabilities]]
+kind = "process:exec"
+command = "powershell"
+args = ["-NoProfile", "-NonInteractive", "-Command", "*"]

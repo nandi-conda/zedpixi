@@ -29,15 +29,15 @@ fn run() -> Result<(), String> {
     let root = std::path::absolute(&root).map_err(|error| error.to_string())?;
     let root = root.to_string_lossy().to_string();
 
-    let config = match std::fs::read_to_string(Path::new(&root).join(pixi::CONFIG_FILE)) {
-        Ok(text) => pixi::parse_config(&text)?,
-        Err(_) => pixi::Config::default(),
-    };
-    let manifest = pixi::absolute_path(&root, &config.manifest_path);
-    let requested = config
-        .environment
-        .as_deref()
-        .unwrap_or(pixi::DEFAULT_ENVIRONMENT);
+    let manifest = Path::new(&root).join(pixi::MANIFEST_FILE);
+    if !manifest.is_file() {
+        return Err(format!(
+            "no {} at the workspace root ({})",
+            pixi::MANIFEST_FILE,
+            manifest.display()
+        ));
+    }
+    let manifest = manifest.to_string_lossy().to_string();
 
     let output = Command::new("pixi")
         .args(["info", "--json", "--manifest-path", &manifest])
@@ -52,7 +52,7 @@ fn run() -> Result<(), String> {
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("could not parse pixi info output: {error}"))?;
-    let (name, prefix) = pixi::select_environment(&value, requested)?;
+    let (name, prefix) = pixi::select_environment(&value)?;
 
     println!("project:     {root}");
     println!("manifest:    {manifest}");

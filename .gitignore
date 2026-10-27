@@ -1,3 +1,7 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Rust build output and the built extension package
+/target
+/extension.wasm

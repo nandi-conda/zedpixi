@@ -1,9 +1,10 @@
 //! A Zed extension that starts language servers from a project's pixi
 //! environment.
 //!
-//! For every server this extension provides, it looks for the server binary in
-//! the environment's `bin` directory (or `Scripts` on Windows), then falls back
-//! to `$PATH`. The server binary and its arguments can be overridden with the
+//! The environment comes from the `pixi.toml` at the worktree root. For every
+//! server this extension provides, it looks for the server binary in the
+//! environment's `bin` directory (or `Scripts` on Windows), then falls back to
+//! `$PATH`. The server binary and its arguments can be overridden with the
 //! usual Zed LSP settings.
 
 use zed_extension_api as zed;
@@ -29,7 +30,6 @@ impl zed::Extension for PixiExtension {
         let id: &str = language_server_id.as_ref();
         let spec = servers::spec(id)
             .ok_or_else(|| format!("pixi extension does not provide `{id}`"))?;
-        let config = pixi::read_config(worktree)?;
         let settings = LspSettings::for_worktree(id, worktree).unwrap_or_default();
         let binary = settings.binary;
         let (os, _arch) = zed::current_platform();
@@ -42,7 +42,7 @@ impl zed::Extension for PixiExtension {
                 .as_ref()
                 .and_then(|binary| binary.arguments.clone())
                 .unwrap_or_else(|| default_args(&spec.candidates[0]));
-            let env = match pixi::resolve(worktree, &config) {
+            let env = match pixi::resolve(worktree) {
                 Ok(env) => pixi::command_env(worktree, &env, windows),
                 Err(_) => Vec::new(),
             };
@@ -50,7 +50,7 @@ impl zed::Extension for PixiExtension {
             return Ok(command(path, args, env));
         }
 
-        let env = pixi::resolve(worktree, &config)?;
+        let env = pixi::resolve(worktree)?;
         let mut checked = Vec::new();
 
         let found = pixi::pick_candidate(
@@ -86,15 +86,10 @@ impl zed::Extension for PixiExtension {
             }
         }
 
-        let note = env
-            .note
-            .as_deref()
-            .map(|note| format!("\n{note}"))
-            .unwrap_or_default();
         Err(format!(
             "no language server for `{id}` found in the pixi environment `{}` ({}).\n\
              Checked: {}\n\
-             Install one with `{}`, or set `lsp.{id}.binary.path` in your Zed settings.{note}",
+             Install one with `{}`, or set `lsp.{id}.binary.path` in your Zed settings.",
             env.name,
             env.prefix,
             checked.join(", "),
