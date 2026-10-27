@@ -14,8 +14,19 @@ and writes two project-local files:
 Run it from the project root after changing dependencies:
 
 ```sh
-pixi run zed-sync          # equivalent to: python3 scripts/zed_pixi_sync.py
-pixi run zed-sync-check    # verify the files are current and the binaries exist
+python3 scripts/zed_pixi_sync.py          # write the configuration
+python3 scripts/zed_pixi_sync.py --check  # verify it is current
+```
+
+This repository wraps both in pixi tasks, so `pixi run zed-sync` and
+`pixi run zed-sync-check` work too. To add them to another project:
+
+```toml
+[tasks.zed-sync]
+cmd = "python3 scripts/zed_pixi_sync.py"
+
+[tasks.zed-sync-check]
+cmd = "python3 scripts/zed_pixi_sync.py --check"
 ```
 
 It reads the root `pixi.toml`, asks `pixi info --json --manifest-path` for the
