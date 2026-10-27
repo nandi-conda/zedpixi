@@ -1,29 +1,41 @@
 # Zed pixi extension — consolidated status
 
-## 2026-10-27: Lean 4 language server entry in the generator (superseded)
+## 2026-10-27: Lean 4 language server entry in the generator
 
-The generated `lean4-lsp` entry and its version pin are gone (removed by
-`92bec7f`, "Generate Zed config only from the workspace root's own pixi env",
-on `main`). `scripts/zed_pixi_sync.py` configures only the servers listed in
-[docs/zed-config.md](docs/zed-config.md); there is no `lean4` entry and no
-version pin. This repository declares no `lean4` dependency on any branch
-(only `rust-analyzer`, `basedpyright`, `taplo` and `python`), so its own
-environment has no `lean` and no `lake`.
+`scripts/zed_pixi_sync.py` names `lean4-lsp` again and emits it from the
+project's own pixi environment: when the selected environment of
+`<project>/pixi.toml` installs `<prefix>/bin/lake`, zed-sync writes
 
-The supported route for a Lean project is the manual configuration documented
-in [docs/lean4-lsp.md](docs/lean4-lsp.md): `lsp.lean4-lsp.binary.path` pointing
-at that project's `<prefix>/bin/lake`, with `arguments: ["serve", "--"]`, and
-the prefix taken from the selected project's own `pixi info --json`. A
-third-party extension's server is not part of this generator's catalog, and a
-pixi `lake` ignores `lean-toolchain`, so an automatic entry would silently
-override elan/Mathlib projects.
+```json
+"lean4-lsp": {"binary": {"path": "<prefix>/bin/lake",
+  "arguments": ["serve", "--"], "ignore_system_version": true,
+  "env": {"PATH": "<prefix>/bin:...", "VIRTUAL_ENV": "<prefix>",
+          "CONDA_PREFIX": "<prefix>", "PIXI_PROJECT_ROOT": "...",
+          "PIXI_PROJECT_MANIFEST": "...", "PIXI_ENVIRONMENT_NAME": "..."}}}
+```
 
-History: commits `0425406` and `36d27a8` added an automatic `lean4-lsp`/`lake`
-entry and two tests; `92bec7f` ("Generate Zed config only from the workspace
-root's own pixi env") removed the entry and its tests. The Lean measurements
-behind it came from a throwaway conda-forge `lean4 = "==4.33.0"` project under
-pixi 0.83.0, not from this repository: `lake` 5.0.0-src answered an LSP
-`initialize` as `Lean 4 Server 0.3.0` under `PATH=/usr/bin:/bin`.
+Zed's Lean 4 extension starts `lake serve --` and otherwise looks only on the
+worktree shell `PATH` or in `ELAN_HOME`, never in the pixi environment, so the
+explicit path is what makes it work. This repository declares no `lean4` on any
+branch (only `rust-analyzer`, `basedpyright`, `taplo` and `python`), so
+`pixi run zed-sync` here writes no `lean4-lsp` entry.
+
+Hand-written entries win: a `lean4-lsp` entry without the `PIXI_*` markers is
+left byte-identical by zed-sync and skipped by `--check`
+(`HAND_WRITTEN_WINS`), so an elan/`lean-toolchain` project keeps its toolchain.
+A generated entry (carrying `PIXI_PROJECT_ROOT`) is updated when the prefix
+changes and pruned when the environment no longer installs `lake`; `--check`
+reports a vanished lake path. The manual recipe remains the fallback for a
+project that does not declare `lean4` in pixi, documented in
+[docs/lean4-lsp.md](docs/lean4-lsp.md).
+
+History: `0425406`/`36d27a8` added an automatic entry; `92bec7f` removed it
+while binding the generator to the workspace's own manifest; `9ddfddb` (with
+`3290e27` for docs) re-added it with project-env scoping and
+hand-written-entry precedence. 49 tests pass (`pixi run zed-sync-test`). The
+Lean measurements came from a throwaway conda-forge `lean4 = "==4.33.0"`
+project under pixi 0.83.0, not from this repository: `lake` 5.0.0-src answered
+an LSP `initialize` as `Lean 4 Server 0.3.0` under `PATH=/usr/bin:/bin`.
 
 ## 2026-10-27: debug adapters and the capability audit
 
