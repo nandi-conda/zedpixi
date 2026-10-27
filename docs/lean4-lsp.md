@@ -49,8 +49,8 @@ path that command prints, for example `<prefix>/bin/lake`):
 Both keys matter: `path` must be `lake`, not `lean`, and `arguments` must be
 `["serve", "--"]`. With no arguments `lake` prints its usage and exits, so the
 server never starts. No `env` block is needed: Lake finds the matching `lean`
-next to itself. A full environment block and the generator that should emit it
-are described below.
+next to itself. A full environment block for the manual entry is described
+below.
 
 JSON does **not** expand variables or placeholders. A literal `"$PATH"`,
 `"$HOME"` or `<prefix>` in `binary.env`/`path` is passed through unchanged and
@@ -107,11 +107,12 @@ call the extension's own command recipe. Consequences:
 - `binary.env` **is** applied by Zed even though extension 0.1.0 passes
   `env: vec![]` in its own code path.
 
-## The configuration to generate (in the project that declares `lean4`)
+## Optional manual configuration (in the project that declares `lean4`)
 
 Only for the user's Lean project whose own pixi manifest declares `lean4` --
-never for this repository. The prefix is taken from that project's
-`pixi info --json` -> `environments_info[].prefix`:
+never for this repository. The generator does not write this entry; add it to
+the project's `.zed/settings.json` by hand, with the prefix taken from that
+project's `pixi info --json` -> `environments_info[].prefix`:
 
 ```json
 {
@@ -144,8 +145,10 @@ Rules:
 - If the worktree root is a parent of the Lake project, use
   `["--dir", "<project dir>", "serve", "--"]`. Extension 0.1.0 has no
   `lake_project_dir` setting; only `binary.arguments` reaches `lake`.
-- Only emit this entry when `<prefix>/bin/lake` exists, exactly like the other
-  language servers in the generator.
+- Add this entry only when `<prefix>/bin/lake` exists. It is not part of the
+  generator's server catalog: `lean4-lsp` belongs to a third-party Zed
+  extension, not to a server Zed ships, and automatically pointing it at a
+  pixi `lake` would override an elan/`lean-toolchain` setup.
 - Derive the prefix from the *selected project's own* `pixi info --json`
   response, never from another manifest. The extension now enforces this
   (commit 5332d65): `project_info.manifest_path` must equal the workspace
@@ -157,17 +160,18 @@ Rules:
   started by Lake inside the environment. It also matches the other servers.
 - Do **not** invent an `ELAN_HOME`. Nothing in this setup reads it. `ELAN_HOME`
   only matters on the elan route: there `lake` must be `$ELAN_HOME/bin/lake`
-  (an elan proxy) and the default is `$HOME/.elan`. Setting `ELAN_HOME` in the
-  generated settings cannot fix the extension's own lookup, because step 3
-  reads the *shell* environment, not `lsp.*.binary.env`. Leave it unset.
+  (an elan proxy) and the default is `$HOME/.elan`. Setting `ELAN_HOME` in
+  `lsp.lean4-lsp.binary.env` cannot fix the extension's own lookup, because
+  step 3 reads the *shell* environment, not `lsp.*.binary.env`. Leave it
+  unset.
 - Do not use `elan_auto_install` for pixi projects: it downloads a second,
   unmanaged toolchain into `$HOME/.elan` and bypasses the pixi env.
 
 ## Other ways to make the extension find `lake`
 
-The generated entry above is the pixi-native fix. These alternatives cover
-setups the generator does not: an elan-managed toolchain, a prefix that moves,
-or a project that already loads its environment through direnv.
+The manual entry above is the pixi-native fix. These alternatives cover setups
+it does not: an elan-managed toolchain, a prefix that moves, or a project that
+already loads its environment through direnv.
 
 ### elan
 
@@ -230,7 +234,7 @@ pixi prefix. `pixi run` only changes `PATH` for the process it starts.
 The generator in this repository is generic: it writes entries only for the
 language servers it names, and `lean4-lsp` is not one of them. A Lean project
 therefore uses the manual entry above, with the `lake` path taken from its own
-pixi environment (`pixi run which lake`). The generated files stay
+pixi environment (`pixi run which lake`). Settings files stay
 machine-specific and are not committed by this repository. `lake` then serves
 with the environment's own `lean`; `lean-toolchain` does not override it (see
 the measured table above), so the pixi dependency is what the server runs.
@@ -239,7 +243,7 @@ The rule for any fix is therefore: resolve `lake` against the user's own
 project pixi environment -- the manifest that actually declares `lean4` -- never
 against this repository's environment or Zed's captured shell PATH. The
 resolver has to bind the pixi environment to the workspace's own manifest;
-`docs/zed-config.md` describes the same rule for the generated settings.
+`docs/zed-config.md` describes the same rule for the files it generates.
 
 ## Verification
 
