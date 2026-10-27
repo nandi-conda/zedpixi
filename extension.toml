@@ -45,9 +45,14 @@ opt_in_languages = ["C", "C++"]
 # Zed only lets an extension run commands it declares here. `pixi info` reads
 # the environment prefix from the project manifest; `/bin/sh` and `powershell`
 # perform the executable check on each candidate server binary.
+#
+# The command is `*` because pixi is resolved through the worktree's PATH
+# (`worktree.which("pixi")`) and is therefore spawned by its absolute path,
+# which an exact `command = "pixi"` would reject. The arguments are fixed to
+# this one read-only query.
 [[capabilities]]
 kind = "process:exec"
-command = "pixi"
+command = "*"
 args = ["info", "--json", "--manifest-path", "*"]
 
 [[capabilities]]
