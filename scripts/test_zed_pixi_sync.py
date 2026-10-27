@@ -314,6 +314,23 @@ class SettingsTests(TemporaryProject):
         self.assertNotIn("dap", settings)
         self.assertNotIn("languages", settings)
 
+    def test_keeps_hand_written_entries_without_markers(self) -> None:
+        existing = {
+            "lsp": {
+                "lean4-lsp": {
+                    "binary": {
+                        "path": str(self.prefix / "bin" / "lake"),
+                        "arguments": ["serve", "--"],
+                    }
+                }
+            }
+        }
+        make_executable(self.prefix / "bin" / "lake")
+        settings = sync.managed_settings(
+            "default", str(self.prefix), self.root, self.manifest, False, existing
+        )
+        self.assertEqual(settings["lsp"]["lean4-lsp"], existing["lsp"]["lean4-lsp"])
+
     def test_prunes_entries_generated_for_another_project(self) -> None:
         foreign = self.root / "foreign"
         existing = {

@@ -209,6 +209,13 @@ provides: a settings file copied from another checkout, or left over after the
 environment moved, converges to this project's environment instead of keeping
 a foreign path. Entries you wrote by hand (no markers) are never removed.
 
+The markers are therefore a declaration of ownership, not just metadata: do
+not copy the `PIXI_*` keys into a hand-written entry (a manual `lean4-lsp`
+entry, for example). Without the markers it is yours and the generator leaves
+it alone; with them the generator treats it as its own and removes it when the
+selected environment does not provide that tool. See
+[lean4-lsp.md](lean4-lsp.md) for the marker-free manual example.
+
 ## `--check`
 
 `zed-sync-check` recomputes the configuration and fails when a managed entry is

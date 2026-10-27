@@ -420,7 +420,13 @@ def entry_env(entry) -> dict:
 
 
 def is_generated(entry) -> bool:
-    """Whether an entry carries the marker every generated entry gets."""
+    """Whether an entry carries the marker every generated entry gets.
+
+    The marker declares ownership: the generator may rewrite or remove such an
+    entry. A hand-written entry must not copy the `PIXI_*` keys from the
+    generated examples, or it will be treated as generated and pruned when the
+    selected environment does not provide that tool.
+    """
     return "PIXI_PROJECT_ROOT" in entry_env(entry)
 
 
