@@ -6,25 +6,51 @@ schema_version = 1
 authors = ["Pixi extension contributors"]
 
 # This extension intentionally registers no language servers, context servers
-# or slash commands. Zed's built-in language servers, debug adapters, tasks and
-# formatters keep working as usual; project settings point them at the pixi
-# environment, and this extension provides the resolved environment and its
-# `bin` directory (see README.md).
+# or slash commands. Zed's built-in language servers, tasks and formatters keep
+# working as usual; project settings point them at the pixi environment
+# (see docs/zed-config.md), and this extension provides the resolved
+# environment and its `bin` directory.
 
-# Zed only lets an extension run commands it declares here. The extension runs
-# `pixi info --json --manifest-path` to resolve the project environment, and
-# uses the shell only to test whether a path inside the environment is
-# executable.
+# Debug adapters are the commands Zed does ask the extension about. Both speak
+# DAP over stdio, so they can be started directly from the environment without
+# allocating a port. Their schemas live in debug_adapter_schemas/; Zed reads
+# the file when it registers the adapter and silently skips a missing one.
+[debug_adapters.pixi-gdb]
+schema_path = "debug_adapter_schemas/pixi-gdb.json"
+
+[debug_adapters.pixi-lldb]
+schema_path = "debug_adapter_schemas/pixi-lldb.json"
+
+# Capability audit.
 #
-# The command is `*` because pixi is resolved through the worktree's PATH
-# (`worktree.which("pixi")`) and is therefore spawned by its absolute path,
-# which an exact `command = "pixi"` would reject. The arguments are fixed to
-# this one read-only query.
+# Zed only lets an extension run commands it declares here, and matches the
+# command string exactly unless it is `*`. The extension runs exactly two kinds
+# of process:
+#
+# 1. `pixi info --json --manifest-path <root>/pixi.toml`, to resolve the
+#    environment prefix. pixi is resolved through the worktree's PATH
+#    (`worktree.which("pixi")`) and is therefore spawned by its absolute path,
+#    which an exact `command = "pixi"` would reject. The arguments are fixed to
+#    this one read-only query.
 [[capabilities]]
 kind = "process:exec"
 command = "*"
 args = ["info", "--json", "--manifest-path", "*"]
 
+# 2. The executable test for candidate paths inside the environment:
+#    `/bin/sh -c 'test -x "$1"' sh <absolute env bin path>`, and PowerShell's
+#    `Test-Path -LiteralPath <absolute env bin path>` on Windows.
+#
+#    This is the grant that permits absolute pixi environment bin paths. Such a
+#    path is always the trailing `$1` / `-LiteralPath` argument; `**` accepts
+#    any trailing arguments and `*` accepts the one path argument. Without
+#    these, the extension could not check `pixi add`-installed tools at all.
+#
+# No blanket `command = "*", args = ["**"]` grant is needed or given: the
+# extension never spawns an environment binary itself. Language servers,
+# formatters, linters and tasks are started by Zed from project settings, and
+# debug adapters are started by Zed from `get_dap_binary`; `process:exec` does
+# not gate either path.
 [[capabilities]]
 kind = "process:exec"
 command = "/bin/sh"

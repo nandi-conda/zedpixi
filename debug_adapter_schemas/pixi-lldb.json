@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Pixi LLDB",
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "string",
+      "enum": ["launch", "attach"],
+      "description": "Start a new process, or attach to an existing one."
+    },
+    "program": {
+      "type": "string",
+      "description": "Executable to debug (launch only). Use a path inside the pixi environment to debug the project's own tools."
+    },
+    "args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Arguments for the debuggee (launch only)."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory for the debuggee (launch only)."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Extra environment variables for the debuggee. The pixi environment's PATH is already applied by the extension."
+    },
+    "processId": {
+      "type": "number",
+      "description": "Process id to attach to (attach only)."
+    },
+    "stopOnEntry": {
+      "type": "boolean",
+      "description": "Stop at the first line of the program."
+    }
+  },
+  "required": ["request"]
+}

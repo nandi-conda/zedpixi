@@ -1,5 +1,37 @@
 # Zed pixi extension — consolidated status
 
+## 2026-10-27: debug adapters and the capability audit
+
+Addition on top of the no-custom-LSP shape (main `d910020`). No language
+server, context server or slash command is added.
+
+- `src/dap.rs` and `src/lib.rs`: the extension now implements
+  `get_dap_binary`, `dap_request_kind` and `dap_config_to_scenario`.
+  `pixi-gdb` (`gdb -i=dap`) and `pixi-lldb` (`lldb-dap`) are resolved with
+  `pixi::resolve_tool` and receive `pixi::command_env`, so debug adapters are
+  routed without generated settings and with no host fallback. Both are
+  stdio adapters; port-based ones (`debugpy`, `dlv dap`) are left to the
+  generated `dap.<adapter>` settings because the extension API has no port
+  allocator.
+- `debug_adapter_schemas/pixi-gdb.json` and `pixi-lldb.json` are required:
+  `ExtensionDapAdapter` reads the schema at registration and silently drops an
+  adapter whose file is missing.
+- `extension.toml`: `[debug_adapters.pixi-gdb]` / `[debug_adapters.pixi-lldb]`,
+  plus a capability audit in comments. The audit records that the only
+  extension-spawned processes are `pixi info` (absolute path, fixed arguments)
+  and the executable test (`/bin/sh -c **`, PowerShell `-Command *`); absolute
+  `<prefix>/bin` paths are permitted as the trailing argument of those tests.
+  No blanket `command = "*", args = ["**"]` is granted, and `process:exec` does
+  not gate Zed-started processes (generated config, debug adapters).
+- `pixi-env-check --shadow`: a self-contained check that builds a throwaway
+  prefix and host `bin` that both contain `pixi-shadow-tool`, and asserts the
+  environment copy is resolved and runs while a host-only tool is not resolved.
+
+Verified: `cargo test --features native-check` 16/16 (11 existing + 5 new DAP
+tests), `cargo build --release --target wasm32-wasip2` OK, and
+`pixi-env-check --shadow . rust-analyzer taplo` printed
+`shadow check passed` with both tools resolved under `<prefix>/bin`.
+
 ## 2026-10-27: direction change — no custom language servers
 
 The extension no longer registers any language server (or context server or

@@ -3,8 +3,15 @@
 //! Build and run with:
 //!
 //! ```sh
-//! cargo run --features native-check --bin pixi-env-check -- [project-root] [tool...]
+//! cargo run --features native-check --bin pixi-env-check -- [--shadow] [project-root] [tool...]
 //! ```
+//!
+//! `--shadow` adds a self-contained shadow check: it builds a throwaway pixi
+//! prefix and a throwaway host `bin` directory that both contain
+//! `pixi-shadow-tool`, resolves the tool with the same strict lookup, and
+//! fails unless the environment copy is chosen and runs while the host-only
+//! tool is not resolved at all. It needs no installed environment and no
+//! network.
 //!
 //! The check uses the same environment selection and path construction as the
 //! extension, but runs `pixi` and tests files with `std` instead of the Zed
@@ -31,9 +38,17 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let mut args = std::env::args().skip(1);
-    let root = args.next().unwrap_or_else(|| ".".to_string());
-    let tools: Vec<String> = args.collect();
+    let mut root = None;
+    let mut tools = Vec::new();
+    let mut shadow = false;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--shadow" => shadow = true,
+            _ if root.is_none() => root = Some(arg),
+            _ => tools.push(arg),
+        }
+    }
+    let root = root.unwrap_or_else(|| ".".to_string());
 
     let root = std::path::absolute(&root)
         .map_err(|error| format!("invalid project root: {error}"))?
@@ -114,6 +129,11 @@ fn run() -> Result<(), String> {
         }
     }
 
+    if shadow {
+        println!();
+        println!("{}", shadow_check()?);
+    }
+
     if missing.is_empty() {
         Ok(())
     } else {
@@ -123,6 +143,77 @@ fn run() -> Result<(), String> {
             missing.join(", ")
         ))
     }
+}
+
+/// Prove a host-installed tool cannot shadow the pixi one, without needing a
+/// real environment.
+///
+/// Two throwaway directories are built: a fake pixi prefix whose
+/// `pixi-shadow-tool` prints `pixi-env`, and a fake host bin directory whose
+/// same-named tool prints `host`. Resolution must pick the environment copy,
+/// running it with the host directory first on `PATH` must still print
+/// `pixi-env`, and a tool that exists only on the host must not resolve.
+#[cfg(unix)]
+fn shadow_check() -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let base = std::env::temp_dir().join(format!("zed-pixi-shadow-{}", std::process::id()));
+    let prefix = base.join("prefix");
+    let env_bin = prefix.join("bin");
+    let host_bin = base.join("host-bin");
+    fs::create_dir_all(&env_bin).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&host_bin).map_err(|error| error.to_string())?;
+
+    let write_script = |path: &Path, output: &str| -> Result<(), String> {
+        fs::write(path, format!("#!/bin/sh\necho {output}\n")).map_err(|e| e.to_string())?;
+        let mut permissions = fs::metadata(path).map_err(|e| e.to_string())?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).map_err(|e| e.to_string())
+    };
+    write_script(&env_bin.join("pixi-shadow-tool"), "pixi-env")?;
+    write_script(&host_bin.join("pixi-shadow-tool"), "host")?;
+    write_script(&host_bin.join("host-only-tool"), "host")?;
+
+    let prefix = prefix.to_string_lossy().into_owned();
+    let host_bin = host_bin.to_string_lossy().into_owned();
+
+    let found = pixi::resolve_tool_with(&prefix, "pixi-shadow-tool", false, |path| {
+        Path::new(path).is_file()
+    })?;
+    if !found.starts_with(&format!("{prefix}/bin/")) {
+        return Err(format!("resolved a path outside the environment: {found}"));
+    }
+
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let path = pixi::prepend_path(&host_bin, &inherited, false);
+    let output = Command::new(&found)
+        .env("PATH", &path)
+        .output()
+        .map_err(|error| format!("could not run {found}: {error}"))?;
+    let printed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if printed != "pixi-env" {
+        return Err(format!(
+            "`{found}` printed `{printed}`, so the host copy ran instead"
+        ));
+    }
+
+    if pixi::resolve_tool_with(&prefix, "host-only-tool", false, |path| {
+        Path::new(path).is_file()
+    })
+    .is_ok()
+    {
+        return Err("resolved a tool that only exists on the host".to_string());
+    }
+
+    let _ = fs::remove_dir_all(&base);
+    Ok(format!(
+        "shadow check passed: `{found}` ran instead of `{host_bin}/pixi-shadow-tool`"
+    ))
+}
+
+#[cfg(not(unix))]
+fn shadow_check() -> Result<String, String> {
+    Ok("shadow check skipped: needs a Unix shell to build test executables".to_string())
 }
 
 fn which_pixi() -> Option<String> {
