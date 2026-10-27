@@ -145,6 +145,12 @@ Rules:
   `lake_project_dir` setting; only `binary.arguments` reaches `lake`.
 - Only emit this entry when `<prefix>/bin/lake` exists, exactly like the other
   language servers in the generator.
+- Derive the prefix from the *selected project's own* `pixi info --json`
+  response, never from another manifest. The extension now enforces this
+  (commit 5332d65): `project_info.manifest_path` must equal the workspace
+  manifest, so a foreign manifest or prefix -- and hence a foreign
+  `lean`/`lake` -- is rejected before use. See
+  [env-resolution-audit.md](env-resolution-audit.md).
 - Keep the usual environment block (PATH with the env's `bin` first). It is not
   strictly required for Lake (it locates `lean` itself), but it keeps programs
   started by Lake inside the environment. It also matches the other servers.

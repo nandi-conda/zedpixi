@@ -2,6 +2,11 @@
 
 ## 2026-10-27: Lean 4 language server entry in the generator
 
+This repository declares no `lean4` dependency on any branch (only
+`rust-analyzer`, `basedpyright`, `taplo` and `python`), so its own environment
+has no `lean` and no `lake`. The Lean toolchain used to verify the entry below
+came from a separate throwaway Lean project, not from this repository.
+
 `scripts/zed_pixi_sync.py` now knows `lean4-lsp`: when the selected
 environment contains `<prefix>/bin/lake`, it writes
 
