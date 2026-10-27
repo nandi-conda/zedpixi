@@ -130,6 +130,15 @@ stale, when a task is missing, or when a referenced binary does not exist or is
 not executable. It is meant for CI and for a quick sanity check after editing
 `pixi.toml`.
 
+The extension's own resolver can be cross-checked against it natively:
+
+```sh
+pixi run env-check rust-analyzer basedpyright-langserver taplo
+```
+
+It uses the same environment selection and prints the `PATH` Zed processes
+should receive; a name that only exists on the host `PATH` makes it fail.
+
 ## Known limits
 
 - The extension itself still cannot set the environment of Zed's built-in

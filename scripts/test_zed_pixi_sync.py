@@ -276,6 +276,16 @@ class EndToEndTests(TemporaryProject):
         self.assertEqual(code, 1)
         self.assertIn("stale", output)
 
+    def test_check_ignores_user_added_keys(self) -> None:
+        self.assertEqual(self.run_main()[0], 0)
+        settings_path = self.root / ".zed" / "settings.json"
+        settings = json.loads(settings_path.read_text())
+        settings["theme"] = "One Dark"
+        settings["lsp"]["rust-analyzer"]["settings"] = {"check": {"command": "clippy"}}
+        settings_path.write_text(json.dumps(settings), encoding="utf-8")
+        code, output = self.run_main("--check")
+        self.assertEqual(code, 0, output)
+
     def test_check_reports_missing_binary(self) -> None:
         self.assertEqual(self.run_main()[0], 0)
         (self.prefix / "bin" / "rust-analyzer").unlink()
