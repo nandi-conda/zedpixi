@@ -110,17 +110,73 @@ command installs the server.
 This makes Python and Node based servers use the interpreters from the pixi
 environment.
 
+## Installing in Zed
+
+The extension is not published in Zed's registry, so install it as a dev
+extension.
+
+Prerequisites:
+
+1. Rust installed with `rustup`, and the WebAssembly target added:
+
+   ```sh
+   rustup target add wasm32-wasip2
+   ```
+
+   Zed builds extensions with `wasm32-wasip2` and adds the target itself when
+   Rust comes from `rustup`. Rust from conda or Homebrew is not enough unless
+   that toolchain also provides the target.
+
+2. `pixi` on the `PATH` of the process that launches Zed. The extension reports
+   a missing `pixi` and stops. On macOS, Zed started from the Dock may not see
+   `~/.pixi/bin`; check by running `which pixi`, or launch Zed from a terminal
+   once to test.
+
+Steps:
+
+1. In the command palette, run **`zed: install dev extension`**. The same button
+   is in the top right of the **`zed: extensions`** page.
+2. Select this repository directory (the one containing `extension.toml` and
+   `Cargo.toml`). Zed compiles it with `cargo build --release --target
+   wasm32-wasip2` and loads `target/wasm32-wasip2/release/zed_pixi.wasm`. You do
+   not run `cargo` yourself.
+3. The Extensions page lists Pixi as `DEV`.
+4. Every server is opt-in. Enable only the ones you want in Zed settings:
+
+   ```json
+   {
+     "languages": {
+       "Rust": { "language_servers": ["pixi-rust"] },
+       "Python": { "language_servers": ["pixi-python"] },
+       "TOML": { "language_servers": ["pixi-toml"] }
+     }
+   }
+   ```
+
+   Listing only the pixi server replaces the default server for that language.
+   Add `"..."` to the list to keep the default server as well.
+5. Open the pixi project directory itself in Zed: the workspace root must
+   contain `pixi.toml`. Then install the servers into that environment, for
+   example `pixi add rust-analyzer basedpyright taplo`.
+
+To see errors, run `zed: open log`; for verbose output, start Zed from a
+terminal with `zed --foreground`. After changing the extension source, run
+`zed: install dev extension` again so Zed rebuilds it.
+
+One known trap: `process:exec` capabilities match the command string exactly.
+The extension runs `pixi` through the absolute path returned by
+`worktree.which("pixi")`, so `extension.toml` grants `command = "*"` for
+`info --json --manifest-path *`. A checkout that still says `command = "pixi"`
+gets that call rejected by Zed at runtime; keep the `*` version.
+
 ## Building
 
-The extension is a normal Zed Rust extension targeting `wasm32-wasip2`:
+To build the same wasm artifact by hand:
 
 ```sh
 rustup target add wasm32-wasip2
 pixi run build          # cargo build --release --target wasm32-wasip2
 ```
-
-In Zed, run `zed: extensions`, choose **Install Dev Extension**, and select this
-directory. Zed builds the extension itself.
 
 The Rust toolchain is not part of the pixi environment: conda-forge ships Rust
 1.99 but no `rust-std-wasm32-wasip2` package, so `rustup` (or another toolchain
