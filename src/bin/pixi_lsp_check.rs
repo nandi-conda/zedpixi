@@ -1,0 +1,84 @@
+//! Check pixi language server discovery natively, without Zed.
+//!
+//! Build and run with:
+//!
+//! ```sh
+//! cargo run --features native-check --bin pixi-lsp-check -- [project-root]
+//! ```
+//!
+//! This uses the same environment selection and candidate ordering as the
+//! extension, but checks paths with `std::path` instead of the Zed host.
+
+use std::path::Path;
+use std::process::Command;
+
+use zed_pixi::pixi;
+use zed_pixi::servers;
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), String> {
+    let root = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| ".".to_string());
+    let root = std::path::absolute(&root).map_err(|error| error.to_string())?;
+    let root = root.to_string_lossy().to_string();
+
+    let config = match std::fs::read_to_string(Path::new(&root).join(pixi::CONFIG_FILE)) {
+        Ok(text) => pixi::parse_config(&text)?,
+        Err(_) => pixi::Config::default(),
+    };
+    let manifest = pixi::absolute_path(&root, &config.manifest_path);
+    let requested = config
+        .environment
+        .as_deref()
+        .unwrap_or(pixi::DEFAULT_ENVIRONMENT);
+
+    let output = Command::new("pixi")
+        .args(["info", "--json", "--manifest-path", &manifest])
+        .output()
+        .map_err(|error| format!("could not run pixi: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "pixi info failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("could not parse pixi info output: {error}"))?;
+    let (name, prefix) = pixi::select_environment(&value, requested)?;
+
+    println!("project:     {root}");
+    println!("manifest:    {manifest}");
+    println!("environment: {name}");
+    println!("prefix:      {prefix}");
+    println!();
+
+    let windows = cfg!(windows);
+    for spec in servers::SERVERS {
+        let mut checked = Vec::new();
+        let found = pixi::pick_candidate(
+            spec.candidates,
+            &prefix,
+            windows,
+            |path| Path::new(path).is_file(),
+            &mut checked,
+        );
+        match found {
+            Some((path, candidate)) => {
+                println!("{}: {} {:?}", spec.id, path, candidate.lsp_args);
+            }
+            None => {
+                println!("{}: not found (tried {})", spec.id, checked.join(", "));
+            }
+        }
+    }
+
+    Ok(())
+}

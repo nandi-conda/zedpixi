@@ -1,0 +1,43 @@
+id = "pixi"
+name = "Pixi"
+description = "Runs language servers from your project's pixi environment."
+version = "0.1.0"
+schema_version = 1
+authors = ["Pixi extension contributors"]
+
+# Every server is opt-in so it never competes with a built-in server or with a
+# server from another extension. Enable one per language, see README.md.
+[language_servers.pixi-rust]
+name = "Pixi Rust Analyzer"
+languages = ["Rust"]
+opt_in_languages = ["Rust"]
+
+[language_servers.pixi-python]
+name = "Pixi Python"
+languages = ["Python"]
+opt_in_languages = ["Python"]
+
+[language_servers.pixi-toml]
+name = "Pixi TOML"
+languages = ["TOML"]
+opt_in_languages = ["TOML"]
+
+[language_servers.pixi-yaml]
+name = "Pixi YAML"
+languages = ["YAML"]
+opt_in_languages = ["YAML"]
+
+[language_servers.pixi-typescript]
+name = "Pixi TypeScript"
+languages = ["TypeScript", "JavaScript"]
+opt_in_languages = ["TypeScript", "JavaScript"]
+
+[language_servers.pixi-go]
+name = "Pixi Go"
+languages = ["Go"]
+opt_in_languages = ["Go"]
+
+[language_servers.pixi-cpp]
+name = "Pixi C/C++"
+languages = ["C", "C++"]
+opt_in_languages = ["C", "C++"]

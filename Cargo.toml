@@ -1,0 +1,22 @@
+[package]
+name = "zed-pixi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde_json = "1"
+zed_extension_api = "0.7.0"
+
+[features]
+# Enables the native `pixi-lsp-check` binary used to try discovery against a
+# real pixi environment without Zed.
+native-check = []
+
+[[bin]]
+name = "pixi-lsp-check"
+path = "src/bin/pixi_lsp_check.rs"
+required-features = ["native-check"]
