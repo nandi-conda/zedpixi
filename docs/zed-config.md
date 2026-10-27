@@ -18,8 +18,8 @@ python3 scripts/zed_pixi_sync.py          # write the configuration
 python3 scripts/zed_pixi_sync.py --check  # verify it is current
 ```
 
-This repository wraps both in pixi tasks, so `pixi run zed-sync` and
-`pixi run zed-sync-check` work too. To add them to another project:
+If the project defines the tasks, `pixi run zed-sync` and `pixi run
+zed-sync-check` work too. To add them:
 
 ```toml
 [tasks.zed-sync]
